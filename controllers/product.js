@@ -1,7 +1,7 @@
 const express = require("express");
 const mongoose = require("mongoose");
 const Product = require("../models/product");
-const Color = require("../models/Colors");
+const Color = require("../models/colors");
 const multer = require("multer");
 const { isAdmin, isAuthenticated } = require("../middleware/auth");
 const catchAsyncErrors = require("../middleware/catchAsyncErrors");
