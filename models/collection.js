@@ -115,4 +115,5 @@ CollectionSchema.set("toObject", { virtuals: true });
 CollectionSchema.statics.DIVISIONS = DIVISIONS;
 CollectionSchema.statics.STATUSES = STATUSES;
 
-module.exports = mongoose.model("Collection", CollectionSchema);
+module.exports =
+  mongoose.models.Collection || mongoose.model("Collection", CollectionSchema);

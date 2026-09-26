@@ -9,9 +9,9 @@ const crypto = require("crypto");
 const NodeCache = require("node-cache");
 const mongoose = require("mongoose");
 const PDFDocument = require("pdfkit");
-const Product = require("../models/Product");
+const Product = require("../models/product");
 const PromoCode = require("../models/coupon");
-const Location = require("../models/Location");
+const Location = require("../models/location");
 const { verifyLedgerIntegrity, recordLedgerEntry } = require("../utils/hy");
 const { recordPointsLedgerEntry } = require("../utils/pointsLedger");
 

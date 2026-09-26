@@ -46,4 +46,5 @@ const qrCodeSchema = new mongoose.Schema(
 // One QR code per product-size
 qrCodeSchema.index({ product: 1, sku: 1 }, { unique: true });
 
-module.exports = mongoose.model("QRCode", qrCodeSchema);
+module.exports =
+  mongoose.models.QRCode || mongoose.model("QRCode", qrCodeSchema);

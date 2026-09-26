@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const Location = require("../models/Location");
+const Location = require("../models/location");
 const ErrorHandler = require("../utils/ErrorHandler");
 const { isAuthenticated, isAdmin } = require("../middleware/auth");
 const catchAsyncErrors = require("../middleware/catchAsyncErrors");
@@ -78,12 +78,10 @@ router.post(
     country.counties.push(req.body);
     await country.save();
 
-    res
-      .status(201)
-      .json({
-        success: true,
-        data: country.counties[country.counties.length - 1],
-      });
+    res.status(201).json({
+      success: true,
+      data: country.counties[country.counties.length - 1],
+    });
   }),
 );
 
@@ -92,13 +90,11 @@ router.get(
   catchAsyncErrors(async (req, res, next) => {
     const country = await Location.findById(req.params.countryId);
     if (!country) return next(new ErrorHandler("Country not found", 404));
-    res
-      .status(200)
-      .json({
-        success: true,
-        count: country.counties.length,
-        data: country.counties,
-      });
+    res.status(200).json({
+      success: true,
+      count: country.counties.length,
+      data: country.counties,
+    });
   }),
 );
 

@@ -27,4 +27,6 @@ const pointsLedgerSchema = new mongoose.Schema(
 
 pointsLedgerSchema.index({ userId: 1 });
 
-module.exports = mongoose.model("PointsLedger", pointsLedgerSchema);
+module.exports =
+  mongoose.models.PointsLedger ||
+  mongoose.model("PointsLedger", pointsLedgerSchema);

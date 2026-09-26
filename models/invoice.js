@@ -91,4 +91,5 @@ InvoiceSchema.post("save", async function (doc) {
   }
 });
 
-module.exports = mongoose.model("Invoice", InvoiceSchema);
+module.exports =
+  mongoose.models.Invoice || mongoose.model("Invoice", InvoiceSchema);
