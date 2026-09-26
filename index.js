@@ -31,13 +31,31 @@ connectDatabase();
 
 app.use(
   cors({
-    origin: "http://localhost:3000",
+    origin: [
+      "https://www.ninetyone.co.ke",
+      "https://ninetyone.co.ke",
+      "www.ninetyone.co.ke",
+      "ninetyone.co.ke",
+      "https://www.ninetyone.co.ke/",
+      "https://ninetyone.co.ke/",
+      "www.ninetyone.co.ke/",
+      "ninetyone.co.ke",
+      "https://whatsapp-delta-nine.vercel.app",
+      "https://threed-edu.vercel.app",
+      "http://localhost:3000",
+      "http://localhost:3000/",
+    ],
+
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "Access-Control-Allow-Credentials",
+      "Access-Control-Allow-Origin",
+    ],
     credentials: true,
-    allowedHeaders: ["Content-Type", "Authorization"],
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
   }),
 );
-// app.use(cors());
 
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
@@ -52,12 +70,6 @@ cloudinary.config({
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
-
-// Log every request (temporary debugging)
-// app.use((req, res, next) => {
-//   console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
-//   next();
-// });
 
 // Routes AFTER middleware
 app.use("/api/v2/user", user);
