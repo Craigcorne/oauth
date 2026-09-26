@@ -55,4 +55,5 @@ ReviewSchema.index({ user: 1, product: 1, order: 1 }, { unique: true });
 // For product average rating calculations
 ReviewSchema.index({ product: 1, createdAt: -1 });
 
-module.exports = mongoose.model("Review", ReviewSchema);
+module.exports =
+  mongoose.models.Review || mongoose.model("Review", ReviewSchema);
