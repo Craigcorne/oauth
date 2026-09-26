@@ -5,30 +5,28 @@ const User = require("../models/user");
 // const Shop = require("../model/shop");
 
 exports.isAuthenticated = catchAsyncErrors(async (req, res, next) => {
-  const { token } = req.cookies;
+  let token = req.cookies?.token;
+
+  // Fall back to Authorization: Bearer <token> when no cookie is present
+  // (mobile / in-app browsers often block the cross-site cookie).
+  if (!token && req.headers.authorization?.startsWith("Bearer ")) {
+    token = req.headers.authorization.split(" ")[1];
+  }
 
   if (!token) {
     return res.status(401).end();
   }
+
   const decoded = jwt.verify(token, process.env.JWT_SECRET_KEY);
 
   req.user = await User.findById(decoded.id);
 
+  if (!req.user) {
+    return res.status(401).end();
+  }
+
   next();
 });
-
-// exports.isSeller = catchAsyncErrors(async (req, res, next) => {
-//   const { seller_token } = req.cookies;
-//   if (!seller_token) {
-//     return next(new ErrorHandler("Please login to continue", 401));
-//   }
-
-//   const decoded = jwt.verify(seller_token, process.env.JWT_SECRET_KEY);
-
-//   req.seller = await Shop.findById(decoded.id);
-
-//   next();
-// });
 
 exports.isAdmin = (...roles) => {
   return (req, res, next) => {
