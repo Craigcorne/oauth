@@ -1,6 +1,6 @@
-const Review = require("../models/Review");
-const Order = require("../models/Order");
-const Product = require("../models/Product");
+const Review = require("../models/review");
+const Order = require("../models/order");
+const Product = require("../models/product");
 const { isAuthenticated } = require("../middleware/auth");
 const cloudinary = require("cloudinary").v2;
 const express = require("express");
