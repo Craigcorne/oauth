@@ -185,6 +185,9 @@ router.post(
   "/tiktok/exchange",
   catchAsyncErrors(async (req, res, next) => {
     const { code, state } = req.body;
+    const TIKTOK_CLIENT_KEY = process.env.TIKTOK_CLIENT_KEY;
+    const TIKTOK_REDIRECT_URI = process.env.TIKTOK_REDIRECT_URI;
+    const TIKTOK_CLIENT_SECRET = process.env.TIKTOK_CLIENT_SECRET;
 
     if (!code) return next(new ErrorHandler("Authorization code missing", 400));
     if (!verifySignedState(state)) {
