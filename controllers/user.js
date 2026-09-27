@@ -220,7 +220,7 @@ router.post(
     const ttk = userRes.data?.data?.user;
     if (!ttk?.open_id)
       throw new ErrorHandler("Could not fetch TikTok profile", 400);
-
+    console.log("tiktok data", ttk);
     const result = await findOrCreateOAuthUser("tiktok", {
       providerId: ttk.union_id || ttk.open_id,
       name: ttk.display_name,
