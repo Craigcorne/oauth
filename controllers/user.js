@@ -116,24 +116,61 @@ const googleCallbackLimiter = rateLimit({
   },
 });
 
-/* ─── Step 1: unchanged, except redirect_uri now points at the frontend ─── */
+/* ─── Stateless CSRF state for TikTok's OAuth redirect ───────────────────
+   Cookie-based state (SameSite/Secure) kept failing across the cross-site
+   redirect → POST /tiktok/exchange hop, so instead of storing the state
+   server-side, we sign it with an HMAC. Verifying it just means
+   recomputing the signature — no cookie, no storage, no cross-site
+   anything for the browser to potentially block. ─── */
+const TIKTOK_STATE_SECRET =
+  process.env.TIKTOK_STATE_SECRET || process.env.JWT_SECRET_KEY;
+
+function createSignedState() {
+  const nonce = crypto.randomBytes(16).toString("hex");
+  const timestamp = Date.now().toString();
+  const payload = `${nonce}.${timestamp}`;
+  const signature = crypto
+    .createHmac("sha256", TIKTOK_STATE_SECRET)
+    .update(payload)
+    .digest("hex");
+  return `${payload}.${signature}`;
+}
+
+function verifySignedState(state) {
+  if (!state) return false;
+  const parts = state.split(".");
+  if (parts.length !== 3) return false;
+
+  const [nonce, timestamp, signature] = parts;
+  const payload = `${nonce}.${timestamp}`;
+  const expectedSignature = crypto
+    .createHmac("sha256", TIKTOK_STATE_SECRET)
+    .update(payload)
+    .digest("hex");
+
+  const sigBuffer = Buffer.from(signature, "hex");
+  const expectedBuffer = Buffer.from(expectedSignature, "hex");
+  if (sigBuffer.length !== expectedBuffer.length) return false;
+  if (!crypto.timingSafeEqual(sigBuffer, expectedBuffer)) return false;
+
+  // Reject if older than 10 minutes (prevents replay of a captured URL)
+  const age = Date.now() - parseInt(timestamp, 10);
+  if (isNaN(age) || age > 10 * 60 * 1000) return false;
+
+  return true;
+}
+
+/* ─── Step 1: redirect the user to TikTok's consent screen ─── */
 router.get("/tiktok", tiktokAuthLimiter, (req, res) => {
-  const state = crypto.randomBytes(16).toString("hex");
   const TIKTOK_CLIENT_KEY = process.env.TIKTOK_CLIENT_KEY;
-  const TIKTOK_CLIENT_SECRET = process.env.TIKTOK_CLIENT_SECRET;
   const TIKTOK_REDIRECT_URI = process.env.TIKTOK_REDIRECT_URI;
 
-  res.cookie("tiktok_csrf_state", state, {
-    maxAge: 10 * 60 * 1000,
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-  });
+  const state = createSignedState(); // was: crypto.randomBytes(...) + res.cookie(...)
 
   const url =
     "https://www.tiktok.com/v2/auth/authorize/" +
     "?client_key=" +
-    process.env.TIKTOK_CLIENT_KEY +
+    TIKTOK_CLIENT_KEY +
     "&scope=user.info.basic" +
     "&response_type=code" +
     "&redirect_uri=" +
@@ -143,17 +180,16 @@ router.get("/tiktok", tiktokAuthLimiter, (req, res) => {
   res.redirect(url);
 });
 
-/* ─── Step 2 (new): frontend POSTs the code here ─── */
+/* ─── Step 2: frontend POSTs the code (and state) here ─── */
 router.post(
   "/tiktok/exchange",
   catchAsyncErrors(async (req, res, next) => {
     const { code, state } = req.body;
 
     if (!code) return next(new ErrorHandler("Authorization code missing", 400));
-    if (state !== req.cookies.tiktok_csrf_state) {
+    if (!verifySignedState(state)) {
       return next(new ErrorHandler("Invalid OAuth state (possible CSRF)", 403));
     }
-    res.clearCookie("tiktok_csrf_state");
 
     /* NOTE: frontend already decoded the query param — do NOT decodeURIComponent again.
        URLSearchParams will re-encode it correctly for TikTok. */
