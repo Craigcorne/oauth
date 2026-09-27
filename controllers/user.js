@@ -130,16 +130,17 @@ router.get("/tiktok", tiktokAuthLimiter, (req, res) => {
     secure: process.env.NODE_ENV === "production",
   });
 
-  const params = new URLSearchParams({
-    client_key: TIKTOK_CLIENT_KEY,
-    scope: "user.info.basic",
-    response_type: "code",
-    redirect_uri: TIKTOK_REDIRECT_URI,
-    state,
-  });
-  res.redirect(
-    `https://www.tiktok.com/v2/auth/authorize/?${params.toString()}`,
-  );
+  const url =
+    "https://www.tiktok.com/v2/auth/authorize/" +
+    "?client_key=" +
+    process.env.TIKTOK_CLIENT_KEY +
+    "&scope=user.info.basic" +
+    "&response_type=code" +
+    "&redirect_uri=" +
+    encodeURIComponent(TIKTOK_REDIRECT_URI) +
+    "&state=" +
+    state;
+  res.redirect(url);
 });
 
 /* ─── Step 2 (new): frontend POSTs the code here ─── */
