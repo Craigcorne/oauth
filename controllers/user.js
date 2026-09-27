@@ -1,5 +1,4 @@
 const axios = require("axios");
-
 const { OAuth2Client } = require("google-auth-library");
 const User = require("../models/user");
 const Invoice = require("../models/invoice"); // adjust path to your User model
@@ -74,6 +73,24 @@ const VALID_ROLES = [
   "viewer",
 ];
 
+const tiktokAuthLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req, res, next, options) =>
+    res
+      .status(options.statusCode)
+      .json({ error: "Too many login attempts. Please try again later." }),
+});
+
+const tiktokCallbackLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+});
 const googleAuthLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
@@ -99,13 +116,104 @@ const googleCallbackLimiter = rateLimit({
   },
 });
 
-//facebook strategy
+/* ─── Step 1: unchanged, except redirect_uri now points at the frontend ─── */
+router.get("/tiktok", tiktokAuthLimiter, (req, res) => {
+  const state = crypto.randomBytes(16).toString("hex");
+  const TIKTOK_CLIENT_KEY = process.env.TIKTOK_CLIENT_KEY;
+  const TIKTOK_CLIENT_SECRET = process.env.TIKTOK_CLIENT_SECRET;
+  const TIKTOK_REDIRECT_URI = process.env.TIKTOK_REDIRECT_URI;
 
-router.get(
-  "/facebook",
-  passport.authenticate("facebook", {
-    scope: ["email", "public_profile"], // "email" has to be requested explicitly
-    session: false,
+  res.cookie("tiktok_csrf_state", state, {
+    maxAge: 10 * 60 * 1000,
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+  });
+
+  const params = new URLSearchParams({
+    client_key: TIKTOK_CLIENT_KEY,
+    scope: "user.info.basic",
+    response_type: "code",
+    redirect_uri: TIKTOK_REDIRECT_URI,
+    state,
+  });
+  res.redirect(
+    `https://www.tiktok.com/v2/auth/authorize/?${params.toString()}`,
+  );
+});
+
+/* ─── Step 2 (new): frontend POSTs the code here ─── */
+router.post(
+  "/tiktok/exchange",
+  catchAsyncErrors(async (req, res, next) => {
+    const { code, state } = req.body;
+
+    if (!code) return next(new ErrorHandler("Authorization code missing", 400));
+    if (state !== req.cookies.tiktok_csrf_state) {
+      return next(new ErrorHandler("Invalid OAuth state (possible CSRF)", 403));
+    }
+    res.clearCookie("tiktok_csrf_state");
+
+    /* NOTE: frontend already decoded the query param — do NOT decodeURIComponent again.
+       URLSearchParams will re-encode it correctly for TikTok. */
+    const tokenRes = await axios.post(
+      "https://open.tiktokapis.com/v2/oauth/token/",
+      new URLSearchParams({
+        client_key: TIKTOK_CLIENT_KEY,
+        client_secret: TIKTOK_CLIENT_SECRET,
+        code,
+        grant_type: "authorization_code",
+        redirect_uri: TIKTOK_REDIRECT_URI,
+      }),
+      { headers: { "Content-Type": "application/x-www-form-urlencoded" } },
+    );
+
+    const { access_token } = tokenRes.data;
+    if (!access_token)
+      throw new ErrorHandler("TikTok did not return an access token", 401);
+
+    const userRes = await axios.get(
+      "https://open.tiktokapis.com/v2/user/info/?fields=open_id,union_id,display_name,avatar_url",
+      { headers: { Authorization: `Bearer ${access_token}` } },
+    );
+    const ttk = userRes.data?.data?.user;
+    if (!ttk?.open_id)
+      throw new ErrorHandler("Could not fetch TikTok profile", 400);
+
+    const result = await findOrCreateOAuthUser("tiktok", {
+      providerId: ttk.union_id || ttk.open_id,
+      name: ttk.display_name,
+      email: `${ttk.union_id || ttk.open_id}@tiktok.oauth.local`,
+      avatarUrl: ttk.avatar_url,
+    });
+    const user = result.user || result;
+    const isNew = result.isNew ?? false;
+
+    assertActive(user);
+
+    /* 2FA for elevated users — returned as JSON, frontend opens the modal */
+    if (!isNew && user.role !== "user") {
+      const channel = await generateAndSendTwoFactorCode(user);
+      return res.status(200).json({
+        source: "tiktok-oauth",
+        success: true,
+        require2FA: true,
+        userId: user._id,
+        channel,
+      });
+    }
+
+    const token = user.getJwtToken();
+    res.cookie("token", token, {
+      expires: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000),
+      httpOnly: true,
+      sameSite: "none",
+      secure: true,
+    });
+
+    return res
+      .status(200)
+      .json({ source: "tiktok-oauth", success: true, token });
   }),
 );
 // facebook
