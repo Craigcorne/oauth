@@ -20,6 +20,7 @@ const {
 } = require("../middleware/2fa");
 
 const { recordPointsLedgerEntry } = require("../utils/pointsLedger");
+const { findOrCreateOAuthUser } = require("../middleware/user");
 const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
 
 function closePopupWithMessage(res, source) {
