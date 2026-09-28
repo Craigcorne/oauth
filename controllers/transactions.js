@@ -120,6 +120,7 @@ router.get(
   isAuthenticated,
   catchAsyncErrors(async (req, res, next) => {
     const { resultId } = req.params;
+    console.log("result", resultId);
 
     const encodedAuth = process.env.api_key;
 
