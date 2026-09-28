@@ -94,7 +94,7 @@ const tiktokCallbackLimiter = rateLimit({
 });
 const googleAuthLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 10,
+  limit: 10,
   standardHeaders: true,
   legacyHeaders: false,
   handler: (req, res, next, options) => {
@@ -106,7 +106,7 @@ const googleAuthLimiter = rateLimit({
 
 const googleCallbackLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 20,
+  limit: 20,
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true,

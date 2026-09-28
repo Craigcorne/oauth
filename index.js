@@ -28,7 +28,7 @@ require("./config/passport");
 const port = 5000;
 
 connectDatabase();
-
+app.set("trust proxy", 1);
 app.use(
   cors({
     origin: [
