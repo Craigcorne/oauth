@@ -76,7 +76,7 @@ router.post("/callback", async (req, res) => {
 
   successfulCallbackData = stkCallbackResponse;
 
-  console.log("Received STK callback:", successfulCallbackData);
+  console.log("Received STK callback:", req.body);
 
   const code = stkCallbackResponse.ResultCode;
   const resultId = stkCallbackResponse.CheckoutRequestID;
