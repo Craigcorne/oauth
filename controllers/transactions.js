@@ -72,41 +72,55 @@ router.post(
 );
 
 router.post("/callback", async (req, res) => {
-  const stkCallbackResponse = req.body.response;
+  const FINAL_SUCCESS = ["SUCCESS", "COMPLETED"];
 
-  successfulCallbackData = stkCallbackResponse;
+  const tx = req.body?.transaction;
 
-  console.log("Received STK callback:", req.body);
+  if (!tx?.id || !tx?.status) {
+    return res.status(400).json({ message: "Invalid callback payload" });
+  }
 
-  const code = stkCallbackResponse.ResultCode;
-  const resultId = stkCallbackResponse.CheckoutRequestID;
-  const amount = stkCallbackResponse.ExternalReference;
-  const ref = stkCallbackResponse.MpesaReceiptNumber;
-  const phone = stkCallbackResponse.Phone;
+  const isSuccess =
+    String(tx.result_code) === "0" || FINAL_SUCCESS.includes(tx.status);
+
+  const update = {
+    customer_number: tx.phone_number,
+    mpesa_ref: tx.mpesa_receipt || null,
+    amount: tx.amount,
+    resultId: tx.provider_checkout_id,
+    type: "deposit",
+    status: tx.status,
+    result_code: String(tx.result_code ?? ""),
+    result_desc: tx.result_desc || "",
+  };
 
   try {
-    if (code === 0) {
-      const transaction = new Transaction();
-      transaction.customer_number = phone;
-      transaction.mpesa_ref = ref;
-      transaction.amount = amount;
-      transaction.resultId = resultId;
-      transaction.type = "deposit";
+    // Only touch a document that is not already a final SUCCESS.
+    // If it is, the filter won't match, the upsert tries an insert,
+    // and the unique index on transactionId rejects it (code 11000).
+    const saved = await Transaction.findOneAndUpdate(
+      { transactionId: tx.id, status: { $nin: FINAL_SUCCESS } },
+      { $set: update, $setOnInsert: { transactionId: tx.id } },
+      { upsert: true, new: true, setDefaultsOnInsert: true },
+    );
 
-      const savedTransaction = await transaction.save();
+    console.log(
+      isSuccess ? "Payment succeeded:" : "Payment failed:",
+      saved.transactionId,
+      tx.result_desc,
+    );
 
-      console.log({
-        message: "Transaction saved successfully",
-        data: savedTransaction,
-      });
+    return res.status(200).json({ message: "Callback processed successfully" });
+  } catch (err) {
+    // Already stored as SUCCESS: a harmless duplicate or late callback
+    if (err.code === 11000) {
+      console.log("Duplicate callback ignored:", tx.id);
+      return res.status(200).json({ message: "Callback already processed" });
     }
 
-    return res.json({
-      message: "Callback processed successfully",
-    });
-  } catch (err) {
-    console.error(err.message);
-    return res.json({
+    console.error("Callback error:", err.message);
+    // 500 lets the provider retry
+    return res.status(500).json({
       message: "Callback processed with error",
       error: err.message,
     });
@@ -120,7 +134,6 @@ router.get(
   isAuthenticated,
   catchAsyncErrors(async (req, res, next) => {
     const { resultId } = req.params;
-    console.log("result", resultId);
 
     const encodedAuth = process.env.api_key;
 
