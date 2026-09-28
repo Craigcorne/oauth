@@ -10,8 +10,7 @@ router.post(
   "/stk",
   isAuthenticated,
   catchAsyncErrors(async (req, res, next) => {
-    const { phone } = req.body;
-    const amount = 1;
+    const { phone, amount } = req.body;
 
     const accountReference = "DefaultAccount";
     const transactionDesc = "Payment Description";

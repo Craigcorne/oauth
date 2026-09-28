@@ -587,15 +587,28 @@ router.post(
         });
       }
       const isPickupOrder = order.shippingAddress?.shippingType === "pickup";
-      if (!isLoyaltyPayment && !isPickupOrder) {
+      if (!isLoyaltyPayment && !isPickupOrder && user.enrolled === true) {
         pointsEarned = Math.floor(subtotal * POINTS_RATE);
+
         if (pointsEarned > 0) {
-          await recordPointsLedgerEntry(user, pointsEarned, {
-            receiptNo: generateReceiptNo("PTS"),
-            purpose: `Points earned - Order ${order.orderNo}`,
-            type: "earned",
-            orderId: order._id.toString(),
-          });
+          try {
+            await recordPointsLedgerEntry(user, pointsEarned, {
+              receiptNo: generateReceiptNo("PTS"),
+              purpose: `Points earned - Order ${order.orderNo}`,
+              type: "earned",
+              orderId: order._id.toString(),
+            });
+          } catch (pointsErr) {
+            pointsEarned = 0; // so the response doesn't claim points that weren't given
+
+            if (pointsErr.code !== "NOT_ENROLLED") {
+              // Real problem (ledger mismatch, concurrency...): log it, keep the order
+              console.error(
+                "Points award failed (non-critical):",
+                pointsErr.message,
+              );
+            }
+          }
         }
       }
 
