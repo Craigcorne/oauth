@@ -83,26 +83,13 @@ router.post("/callback", async (req, res) => {
   const isSuccess =
     String(tx.result_code) === "0" || FINAL_SUCCESS.includes(tx.status);
 
-  const update = {
-    customer_number: tx.phone_number,
-    mpesa_ref: tx.mpesa_receipt || null,
-    amount: tx.amount,
-    resultId: tx.provider_checkout_id,
-    type: "deposit",
-    status: tx.status,
-    result_code: String(tx.result_code ?? ""),
-    result_desc: tx.result_desc || "",
-  };
-
   try {
-    // Only touch a document that is not already a final SUCCESS.
-    // If it is, the filter won't match, the upsert tries an insert,
-    // and the unique index on transactionId rejects it (code 11000).
-    const saved = await Transaction.findOneAndUpdate(
-      { transactionId: tx.id, status: { $nin: FINAL_SUCCESS } },
-      { $set: update, $setOnInsert: { transactionId: tx.id } },
-      { upsert: true, new: true, setDefaultsOnInsert: true },
-    );
+    const saved = await Transaction.create({
+      customer_number: tx.phone_number,
+      mpesa_ref: tx.mpesa_receipt || null,
+      amount: tx.amount,
+      resultId: tx.id,
+    });
 
     console.log(
       isSuccess ? "Payment succeeded:" : "Payment failed:",
@@ -112,7 +99,7 @@ router.post("/callback", async (req, res) => {
 
     return res.status(200).json({ message: "Callback processed successfully" });
   } catch (err) {
-    // Already stored as SUCCESS: a harmless duplicate or late callback
+    // Same transaction id already stored: a harmless duplicate callback
     if (err.code === 11000) {
       console.log("Duplicate callback ignored:", tx.id);
       return res.status(200).json({ message: "Callback already processed" });

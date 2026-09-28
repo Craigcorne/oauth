@@ -117,13 +117,18 @@ const recordPointsLedgerEntry = async (user, points, entryData) => {
 
   const UserModel = user.constructor;
   const { session, ...ledgerFields } = entryData;
+  const mutation = Number(points);
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     const freshUser = await UserModel.findById(user._id).session(session);
     if (!freshUser) {
       throw new Error("User not found");
     }
-
+    if (mutation > 0 && freshUser.enrolled !== true) {
+      const err = new Error("User is not enrolled in the points program");
+      err.code = "NOT_ENROLLED";
+      throw err;
+    }
     const check = await verifyPointsLedgerIntegrity(freshUser, session);
 
     if (!check.valid) {
@@ -133,7 +138,7 @@ const recordPointsLedgerEntry = async (user, points, entryData) => {
     }
 
     const currentPoints = Number(freshUser.points || 0);
-    const mutation = Number(points);
+
     const newBalance = currentPoints + mutation;
 
     if (newBalance < 0) {
