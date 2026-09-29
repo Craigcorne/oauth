@@ -79,8 +79,7 @@ router.post("/callback", async (req, res) => {
     return res.status(400).json({ message: "Invalid callback payload" });
   }
 
-  const isSuccess =
-    String(tx.result_code) === "0" || FINAL_SUCCESS.includes(tx.status);
+  const isSuccess = String(tx.result_code) === "0";
 
   try {
     const saved = await Transaction.create({
