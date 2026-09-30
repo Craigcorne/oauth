@@ -92,6 +92,16 @@ const tiktokCallbackLimiter = rateLimit({
   legacyHeaders: false,
   skipSuccessfulRequests: true,
 });
+const oauthLoginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 20, // 20 attempts per IP per window
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: "Too many login attempts, try again later.",
+  },
+});
 const googleAuthLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 10,
