@@ -246,7 +246,7 @@ router.post(
 
     const token = user.getJwtToken();
     res.cookie("token", token, {
-      expires: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000),
+      expires: new Date(Date.now() + 1 * 24 * 60 * 60 * 1000),
       httpOnly: true,
       sameSite: "none",
       secure: true,
@@ -315,7 +315,7 @@ router.get(
       const token = user.getJwtToken();
 
       res.cookie("token", token, {
-        expires: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000),
+        expires: new Date(Date.now() + 1 * 24 * 60 * 60 * 1000),
         httpOnly: true,
         sameSite: "none",
         secure: true,
@@ -350,64 +350,68 @@ router.get(
 // oauth
 router.post(
   "/oauth-login",
+  oauthLoginLimiter,
   catchAsyncErrors(async (req, res, next) => {
     const { provider } = req.body;
-    const verify = providerVerifiers[provider];
 
-    if (!verify) {
+    if (
+      typeof provider !== "string" ||
+      !Object.hasOwn(providerVerifiers, provider)
+    ) {
       return next(new ErrorHandler("Invalid or missing OAuth provider", 400));
     }
 
     let profile;
     try {
-      profile = await verify(req.body);
-    } catch {
+      profile = await providerVerifiers[provider](req.body);
+    } catch (err) {
+      console.error(`OAuth verify failed (${provider}):`, err.message);
       return next(new ErrorHandler("Could not verify OAuth token", 401));
     }
 
-    const { providerId, name, email, avatarUrl } = profile;
-    if (!providerId) {
+    if (!profile?.providerId) {
+      return next(new ErrorHandler("Could not verify OAuth token", 401));
+    }
+
+    let user, created;
+    try {
+      ({ user, created } = await findOrCreateOAuthUser(provider, profile));
+    } catch (err) {
+      console.error("findOrCreateOAuthUser failed:", err);
       return next(
-        new ErrorHandler("Provider did not return an account id", 400),
+        new ErrorHandler("Sign-in failed", err.code === 11000 ? 409 : 500),
       );
     }
 
-    let user, isNew;
-    try {
-      const result = await findOrCreateOAuthUser(provider, profile);
-      user = result.user || result;
-      isNew = result.isNew ?? false;
-    } catch (error) {
-      if (error.code === 11000) {
-        return next(
-          new ErrorHandler("An account with this email already exists", 400),
-        );
-      }
-      return next(new ErrorHandler(error.message, error.status || 500));
-    }
+    assertActive(user); // must throw if inactive
 
-    /* Block inactive users */
-    assertActive(user, next);
-
-    /* 2FA for existing elevated users */
-    if (!isNew && user.role !== "user") {
+    if (!created && user.role !== "user") {
       const channel = await generateAndSendTwoFactorCode(user);
 
+      const pending = jwt.sign(
+        { id: user._id, purpose: "2fa" },
+        process.env.JWT_SECRET,
+        { expiresIn: "10m" },
+      );
+      res.cookie("pending2fa", pending, {
+        httpOnly: true,
+        secure: true,
+        sameSite: "lax",
+        maxAge: 10 * 60 * 1000,
+      });
+
       return res.status(200).json({
-        source: "google-outh",
+        source: provider,
         success: true,
         require2FA: true,
         message: "Two-factor authentication required",
-        userId: user._id,
         channel,
       });
     }
 
-    /* New users & standard users log in directly */
-    sendToken(user, 201, res);
+    sendToken(user, created ? 201 : 200, res);
   }),
 );
-
 /* ── Verify 2FA Code ── */
 router.post(
   "/verify-2fa",
