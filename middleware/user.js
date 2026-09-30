@@ -5,51 +5,72 @@ const User = require("../models/user"); // adjust path to your User model
 // by authProvider+providerId" logic either way.
 
 // utils/oauthHelpers.js
-const findOrCreateOAuthUser = async (provider, profile) => {
-  const { providerId, name, avatarUrl } = profile;
-  const email = profile.email?.trim().toLowerCase() || undefined;
-  const avatar = avatarUrl ? { url: avatarUrl } : undefined;
-
-  // 1. Returning OAuth user
-  let user = await User.findOne({ authProvider: provider, providerId });
-  if (user) return { user, created: false };
-
-  // 2. Existing account with same email
-  if (email) {
-    const existing = await User.findOne({ email });
-    if (existing) {
-      if (!emailVerified) {
-        const err = new Error("Email not verified by provider");
-        err.status = 403;
-        throw err;
-      }
-      // Safest: refuse and require login + manual linking instead:
-      // const err = new Error("Account exists. Log in and link this provider."); err.status = 409; throw err;
-      existing.providerId = providerId;
-      existing.authProvider = provider;
-      if (!existing.avatar?.url && avatar) existing.avatar = avatar;
-      await existing.save();
-      return { user: existing, created: false };
-    }
-  }
-
-  // 3. Create
+const findOrCreateOAuthUser = async (provider, normalizedProfile) => {
   try {
-    user = await User.create({
-      providerId,
+    const { providerId, email, name, avatarUrl } = normalizedProfile;
+
+    const avatarObj = avatarUrl ? { url: avatarUrl } : undefined;
+
+    // Step 1: Try to find user by providerId and authProvider
+    let user = await User.findOne({
+      providerId: providerId,
       authProvider: provider,
-      email,
-      name: name || "User",
-      avatar,
-      isActive: true,
     });
-    return { user, created: true };
-  } catch (err) {
-    if (err.code === 11000) {
-      const again = await User.findOne({ authProvider: provider, providerId });
-      if (again) return { user: again, created: false };
+
+    // Step 2: If not found, try by email
+    if (!user && email) {
+      user = await User.findOne({ email });
+
+      if (user) {
+        // Link provider to existing user
+        user.providerId = providerId;
+        user.authProvider = provider;
+        user.avatar = avatarObj || user.avatar;
+        await user.save();
+      }
     }
-    throw err;
+
+    // Step 3: If still no user, create one
+    if (!user) {
+      // Check if user already exists with this email (case insensitive)
+      if (email) {
+        const existingUser = await User.findOne({
+          email: { $regex: new RegExp(`^${email}$`, "i") },
+        });
+
+        if (existingUser) {
+          // Link to existing user
+          existingUser.providerId = providerId;
+          existingUser.authProvider = provider;
+          existingUser.avatar = avatarObj || existingUser.avatar;
+          await existingUser.save();
+
+          return existingUser;
+        }
+      }
+
+      // Create new user - MATCH YOUR SCHEMA
+      user = await User.create({
+        providerId: providerId,
+        authProvider: provider,
+        email: email,
+        name: name || "User",
+        avatar: avatarObj || null,
+        isActive: true,
+        // Don't include googleId or providers array if your schema doesn't have them
+      });
+    }
+
+    // Step 4: Check if user is active
+    if (!user.isActive) {
+      throw new Error("Account is deactivated. Please contact support.");
+    }
+
+    return user;
+  } catch (error) {
+    console.error("Error in findOrCreateOAuthUser:", error);
+    throw error;
   }
 };
+
 module.exports = { findOrCreateOAuthUser };
