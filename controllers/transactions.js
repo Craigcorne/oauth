@@ -72,7 +72,6 @@ router.post(
 
 router.post("/callback", async (req, res) => {
   const FINAL_SUCCESS = ["SUCCESS", "COMPLETED"];
-  console.log("Received callback:", req.body);
 
   const tx = req.body?.transaction;
 
