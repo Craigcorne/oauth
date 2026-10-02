@@ -31,22 +31,7 @@ connectDatabase();
 app.set("trust proxy", 1);
 app.use(
   cors({
-    origin: [
-      "https://www.ninetyone.co.ke",
-      "https://ninetyone.co.ke",
-      "https://ninetyone.co.ke",
-      "https://www.ninetyone.co.ke/",
-      "https://ninetyone.co.ke/",
-      "www.ninetyone.co.ke/",
-      "ninetyone.co.ke",
-      "www.ninetyone.co.ke",
-
-      "ninetyone.co.ke",
-      "https://whatsapp-delta-nine.vercel.app",
-      "https://threed-edu.vercel.app",
-      "http://localhost:3000",
-      "http://localhost:3000/",
-    ],
+    origin: /^https:\/\/(www\.)?ninetyone\.co\.ke$/,
 
     allowedHeaders: [
       "Content-Type",
@@ -58,6 +43,35 @@ app.use(
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
   }),
 );
+// app.use(
+//   cors({
+//     origin: [
+//       "https://www.ninetyone.co.ke",
+//       "https://ninetyone.co.ke",
+//       "https://ninetyone.co.ke",
+//       "https://www.ninetyone.co.ke/",
+//       "https://ninetyone.co.ke/",
+//       "www.ninetyone.co.ke/",
+//       "ninetyone.co.ke",
+//       "www.ninetyone.co.ke",
+
+//       "ninetyone.co.ke",
+//       "https://whatsapp-delta-nine.vercel.app",
+//       "https://threed-edu.vercel.app",
+//       "http://localhost:3000",
+//       "http://localhost:3000/",
+//     ],
+
+//     allowedHeaders: [
+//       "Content-Type",
+//       "Authorization",
+//       "Access-Control-Allow-Credentials",
+//       "Access-Control-Allow-Origin",
+//     ],
+//     credentials: true,
+//     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+//   }),
+// );
 
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
