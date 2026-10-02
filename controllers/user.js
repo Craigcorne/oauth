@@ -20,10 +20,7 @@ const {
 } = require("../middleware/2fa");
 
 const { recordPointsLedgerEntry } = require("../utils/pointsLedger");
-const {
-  findOrCreateOAuthUser,
-  setPendingSignup,
-} = require("../middleware/user");
+const { findOrCreateOAuthUser } = require("../middleware/user");
 const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
 
 function closePopupWithMessage(res, source) {
@@ -54,17 +51,6 @@ const resend2FALimiter = createRateLimiter({
   keyGenerator: (req) => `resend-2fa:${req.body.userId || req.ip}`,
   message:
     "Too many code requests. Please wait before requesting another code.",
-});
-
-const oauthSignupLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 10, // 10 signup attempts per IP per window
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: {
-    success: false,
-    message: "Too many signup attempts. Please try again later.",
-  },
 });
 
 function assertActive(user) {
@@ -245,29 +231,19 @@ router.post(
     if (!ttk?.open_id)
       throw new ErrorHandler("Could not fetch TikTok profile", 400);
 
-    const profile = {
+    const result = await findOrCreateOAuthUser("tiktok", {
       providerId: ttk.union_id || ttk.open_id,
       name: ttk.display_name,
       email: `${ttk.union_id || ttk.open_id}@tiktok.oauth.local`,
-      emailVerified: false,
       avatarUrl: ttk.avatar_url,
-    };
-
-    const user = await findOAuthUser("tiktok", profile);
-
-    if (!user) {
-      setPendingSignup(res, "tiktok", profile);
-      return res.status(200).json({
-        source: "tiktok-oauth",
-        success: true,
-        requireSignup: true,
-        profile: { name: profile.name, avatarUrl: profile.avatarUrl },
-      });
-    }
+    });
+    const user = result.user || result;
+    const isNew = result.isNew ?? false;
 
     assertActive(user);
 
-    if (user.role !== "user") {
+    /* 2FA for elevated users — returned as JSON, frontend opens the modal */
+    if (!isNew && user.role !== "user") {
       const channel = await generateAndSendTwoFactorCode(user);
       return res.status(200).json({
         source: "tiktok-oauth",
@@ -280,17 +256,17 @@ router.post(
 
     const token = user.getJwtToken();
     res.cookie("token", token, {
-      expires: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      expires: new Date(Date.now() + 1 * 24 * 60 * 60 * 1000),
       httpOnly: true,
       sameSite: "none",
       secure: true,
     });
+
     return res
       .status(200)
       .json({ source: "tiktok-oauth", success: true, token });
   }),
 );
-
 // facebook
 router.get(
   "/facebook/callback",
@@ -334,17 +310,12 @@ router.get(
   }),
   async (req, res) => {
     try {
-      if (req.user?.isPendingSignup) {
-        setPendingSignup(res, "google", req.user.profile);
-        return res.redirect(
-          `${FRONTEND_URL}/oauth/result?provider=google&requireSignup=true`,
-        );
-      }
-
       const user = req.user;
+      const isNew = req.authInfo?.isNew ?? false; // depends on your strategy setup
+
       assertActive(user);
 
-      if (user.role !== "user") {
+      if (!isNew && user.role !== "user") {
         const channel = await generateAndSendTwoFactorCode(user);
         return res.redirect(
           `${FRONTEND_URL}/oauth/result?provider=google&require2FA=true&userId=${user._id}&channel=${channel}`,
@@ -352,22 +323,37 @@ router.get(
       }
 
       const token = user.getJwtToken();
+
       res.cookie("token", token, {
-        expires: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        expires: new Date(Date.now() + 1 * 24 * 60 * 60 * 1000),
         httpOnly: true,
         sameSite: "none",
         secure: true,
       });
 
-      // token removed from the URL, the cookie is enough
+      //return closePopupWithMessage(res, "google-oauth");
+
       return res.redirect(
-        `${FRONTEND_URL}/oauth/result?provider=google&success=true`,
+        `${FRONTEND_URL}/oauth/result?provider=google&success=true&token=${token}`,
       );
     } catch (err) {
       return res.redirect(
         `${FRONTEND_URL}/oauth/result?provider=google&success=false&message=${encodeURIComponent(err.message)}`,
       );
     }
+    //   catch (err) {return res.send(`
+    //     <!doctype html>
+    //     <script>
+    //       window.opener.postMessage({
+    //         source: "google-oauth",
+    //         success: false,
+    //         message: ${JSON.stringify(err.message)}
+    //       }, "${FRONTEND_URL}");
+
+    //       window.close();
+    //     </script>
+    //   `);
+    // }
   },
 );
 
@@ -397,25 +383,14 @@ router.post(
       return next(new ErrorHandler("Could not verify OAuth token", 401));
     }
 
-    let user;
+    let user, created;
     try {
-      user = await findOAuthUser(provider, profile); // profile must include emailVerified
+      ({ user, created } = await findOrCreateOAuthUser(provider, profile));
     } catch (err) {
-      return next(new ErrorHandler(err.message, 403));
-    }
-
-    if (!user) {
-      setPendingSignup(res, provider, profile);
-      return res.status(200).json({
-        source: provider,
-        success: true,
-        requireSignup: true,
-        profile: {
-          name: profile.name,
-          email: profile.email,
-          avatarUrl: profile.avatarUrl,
-        },
-      });
+      console.error("findOrCreateOAuthUser failed:", err);
+      return next(
+        new ErrorHandler("Sign-in failed", err.code === 11000 ? 409 : 500),
+      );
     }
 
     assertActive(user); // must throw if inactive
@@ -425,7 +400,7 @@ router.post(
 
       const pending = jwt.sign(
         { id: user._id, purpose: "2fa" },
-        process.env.JWT_SECRET_KEY,
+        process.env.JWT_SECRET,
         { expiresIn: "10m" },
       );
       res.cookie("pending2fa", pending, {
@@ -445,62 +420,6 @@ router.post(
     }
 
     sendToken(user, created ? 201 : 200, res);
-  }),
-);
-
-router.get("/oauth/pending-signup", (req, res, next) => {
-  const pending = readPendingSignup(req);
-  if (!pending)
-    return next(
-      new ErrorHandler("Signup session expired. Please sign in again.", 401),
-    );
-  const { name, email, avatarUrl } = pending.profile;
-  res.json({
-    success: true,
-    provider: pending.provider,
-    profile: {
-      name,
-      avatarUrl,
-      email: email?.endsWith("@tiktok.oauth.local") ? null : email,
-    },
-    termsVersion: CURRENT_TERMS_VERSION,
-  });
-});
-
-router.post(
-  "/oauth/complete-signup",
-  oauthSignupLimiter, // add a limiter like your others
-  catchAsyncErrors(async (req, res, next) => {
-    const { acceptedTerms, name } = req.body;
-
-    if (acceptedTerms !== true) {
-      return next(
-        new ErrorHandler("You must accept the Terms to create an account", 400),
-      );
-    }
-
-    const pending = readPendingSignup(req);
-    if (!pending) {
-      return next(
-        new ErrorHandler("Signup session expired. Please sign in again.", 401),
-      );
-    }
-
-    let user;
-    try {
-      // handles a double-submit or a user created in the meantime
-      user = await findOAuthUser(pending.provider, pending.profile);
-      if (!user)
-        user = await createOAuthUser(pending.provider, pending.profile, name);
-    } catch (err) {
-      console.error("complete-signup failed:", err);
-      return next(
-        new ErrorHandler("Sign-up failed", err.code === 11000 ? 409 : 500),
-      );
-    }
-
-    clearPendingSignup(res);
-    sendToken(user, 201, res);
   }),
 );
 /* ── Verify 2FA Code ── */
