@@ -70,7 +70,6 @@ app.use(
 //       "www.ninetyone.co.ke/",
 //       "ninetyone.co.ke",
 //       "www.ninetyone.co.ke",
-
 //       "ninetyone.co.ke",
 //       "https://whatsapp-delta-nine.vercel.app",
 //       "https://threed-edu.vercel.app",
@@ -88,6 +87,12 @@ app.use(
 //     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
 //   }),
 // );
+
+app.use((req, res, next) => {
+  res.setHeader("Vary", "Origin");
+  res.setHeader("Cache-Control", "no-store");
+  next();
+});
 
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
