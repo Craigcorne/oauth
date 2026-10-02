@@ -28,7 +28,9 @@ require("./config/passport");
 const port = 5000;
 
 connectDatabase();
+
 app.set("trust proxy", 1);
+
 const allowed = [
   "https://ninetyone.co.ke",
   "https://www.ninetyone.co.ke",
@@ -38,14 +40,26 @@ const allowed = [
 app.use(
   cors({
     origin: (origin, cb) => {
-      if (!origin || allowed.includes(origin)) return cb(null, true);
-      cb(new Error("Not allowed by CORS"));
+      if (!origin) {
+        return cb(null, true);
+      }
+
+      if (allowed.includes(origin)) {
+        return cb(null, origin);
+      }
+
+      return cb(new Error(`Not allowed by CORS: ${origin}`));
     },
+
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+
     allowedHeaders: ["Content-Type", "Authorization"],
-    credentials: true, // only if you send cookies/auth
+
+    credentials: true,
+    optionsSuccessStatus: 204,
   }),
 );
+
 // app.use(
 //   cors({
 //     origin: [
