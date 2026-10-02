@@ -1,11 +1,12 @@
-const User = require("../models/user"); // adjust path to your User model
+const User = require("../models/user");
 
-// Shared by both the /oauth-login route (Google/Facebook) and the TikTok
-// redirect callback — same "verify provider identity, then find-or-create
-// by authProvider+providerId" logic either way.
+const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-// utils/oauthHelpers.js
-const findOrCreateOAuthUser = async (provider, normalizedProfile) => {
+const findOrCreateOAuthUser = async (
+  provider,
+  normalizedProfile,
+  { createIfMissing = true } = {},
+) => {
   try {
     const { providerId, email, name, avatarUrl } = normalizedProfile;
 
@@ -22,7 +23,6 @@ const findOrCreateOAuthUser = async (provider, normalizedProfile) => {
       user = await User.findOne({ email });
 
       if (user) {
-        // Link provider to existing user
         user.providerId = providerId;
         user.authProvider = provider;
         user.avatar = avatarObj || user.avatar;
@@ -30,16 +30,14 @@ const findOrCreateOAuthUser = async (provider, normalizedProfile) => {
       }
     }
 
-    // Step 3: If still no user, create one
+    // Step 3: If still no user, try a case-insensitive email match, then create
     if (!user) {
-      // Check if user already exists with this email (case insensitive)
       if (email) {
         const existingUser = await User.findOne({
-          email: { $regex: new RegExp(`^${email}$`, "i") },
+          email: { $regex: new RegExp(`^${escapeRegex(email)}$`, "i") },
         });
 
         if (existingUser) {
-          // Link to existing user
           existingUser.providerId = providerId;
           existingUser.authProvider = provider;
           existingUser.avatar = avatarObj || existingUser.avatar;
@@ -49,7 +47,9 @@ const findOrCreateOAuthUser = async (provider, normalizedProfile) => {
         }
       }
 
-      // Create new user - MATCH YOUR SCHEMA
+      // Sign-in mode: no account exists, so don't create one
+      if (!createIfMissing) return null;
+
       user = await User.create({
         providerId: providerId,
         authProvider: provider,
@@ -57,7 +57,6 @@ const findOrCreateOAuthUser = async (provider, normalizedProfile) => {
         name: name || "User",
         avatar: avatarObj || null,
         isActive: true,
-        // Don't include googleId or providers array if your schema doesn't have them
       });
     }
 

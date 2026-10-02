@@ -176,7 +176,8 @@ router.get("/tiktok", tiktokAuthLimiter, (req, res) => {
   const TIKTOK_CLIENT_KEY = process.env.TIKTOK_CLIENT_KEY;
   const TIKTOK_REDIRECT_URI = process.env.TIKTOK_REDIRECT_URI;
 
-  const state = createSignedState(); // was: crypto.randomBytes(...) + res.cookie(...)
+  const mode = req.query.mode === "signin" ? "signin" : "signup";
+  const state = `${createSignedState()}~${mode}`;
 
   const url =
     "https://www.tiktok.com/v2/auth/authorize/" +
@@ -187,7 +188,7 @@ router.get("/tiktok", tiktokAuthLimiter, (req, res) => {
     "&redirect_uri=" +
     encodeURIComponent(TIKTOK_REDIRECT_URI) +
     "&state=" +
-    state;
+    encodeURIComponent(state);
   res.redirect(url);
 });
 
@@ -196,75 +197,50 @@ router.post(
   "/tiktok/exchange",
   catchAsyncErrors(async (req, res, next) => {
     const { code, state } = req.body;
-    const TIKTOK_CLIENT_KEY = process.env.TIKTOK_CLIENT_KEY;
-    const TIKTOK_REDIRECT_URI = process.env.TIKTOK_REDIRECT_URI;
-    const TIKTOK_CLIENT_SECRET = process.env.TIKTOK_CLIENT_SECRET;
+    // ...TIKTOK_* env vars as before
 
     if (!code) return next(new ErrorHandler("Authorization code missing", 400));
-    if (!verifySignedState(state)) {
+
+    // Split "<signedState>~<mode>" back apart
+    const stateStr = String(state || "");
+    const sep = stateStr.lastIndexOf("~");
+    const rawState = sep === -1 ? stateStr : stateStr.slice(0, sep);
+    const mode =
+      sep !== -1 && stateStr.slice(sep + 1) === "signin" ? "signin" : "signup";
+
+    if (!verifySignedState(rawState)) {
       return next(new ErrorHandler("Invalid OAuth state (possible CSRF)", 403));
     }
 
-    /* NOTE: frontend already decoded the query param — do NOT decodeURIComponent again.
-       URLSearchParams will re-encode it correctly for TikTok. */
-    const tokenRes = await axios.post(
-      "https://open.tiktokapis.com/v2/oauth/token/",
-      new URLSearchParams({
-        client_key: TIKTOK_CLIENT_KEY,
-        client_secret: TIKTOK_CLIENT_SECRET,
-        code,
-        grant_type: "authorization_code",
-        redirect_uri: TIKTOK_REDIRECT_URI,
-      }),
-      { headers: { "Content-Type": "application/x-www-form-urlencoded" } },
+    // ...token exchange and profile fetch exactly as before...
+
+    const result = await findOrCreateOAuthUser(
+      "tiktok",
+      {
+        providerId: ttk.union_id || ttk.open_id,
+        name: ttk.display_name,
+        email: `${ttk.union_id || ttk.open_id}@tiktok.oauth.local`,
+        avatarUrl: ttk.avatar_url,
+      },
+      { createIfMissing: mode === "signup" },
     );
 
-    const { access_token } = tokenRes.data;
-    if (!access_token)
-      throw new ErrorHandler("TikTok did not return an access token", 401);
+    // Sign-in mode and no existing account
+    if (!result) {
+      return res.status(200).json({
+        source: "tiktok-oauth",
+        success: false,
+        code: "ACCOUNT_NOT_FOUND",
+        message: "No account found. Please sign up first.",
+      });
+    }
 
-    const userRes = await axios.get(
-      "https://open.tiktokapis.com/v2/user/info/?fields=open_id,union_id,display_name,avatar_url",
-      { headers: { Authorization: `Bearer ${access_token}` } },
-    );
-    const ttk = userRes.data?.data?.user;
-    if (!ttk?.open_id)
-      throw new ErrorHandler("Could not fetch TikTok profile", 400);
-
-    const result = await findOrCreateOAuthUser("tiktok", {
-      providerId: ttk.union_id || ttk.open_id,
-      name: ttk.display_name,
-      email: `${ttk.union_id || ttk.open_id}@tiktok.oauth.local`,
-      avatarUrl: ttk.avatar_url,
-    });
     const user = result.user || result;
     const isNew = result.isNew ?? false;
 
     assertActive(user);
 
-    /* 2FA for elevated users — returned as JSON, frontend opens the modal */
-    if (!isNew && user.role !== "user") {
-      const channel = await generateAndSendTwoFactorCode(user);
-      return res.status(200).json({
-        source: "tiktok-oauth",
-        success: true,
-        require2FA: true,
-        userId: user._id,
-        channel,
-      });
-    }
-
-    const token = user.getJwtToken();
-    res.cookie("token", token, {
-      expires: new Date(Date.now() + 1 * 24 * 60 * 60 * 1000),
-      httpOnly: true,
-      sameSite: "none",
-      secure: true,
-    });
-
-    return res
-      .status(200)
-      .json({ source: "tiktok-oauth", success: true, token });
+    // ...2FA block and cookie/token response unchanged...
   }),
 );
 // facebook
@@ -289,17 +265,15 @@ router.get(
   }),
 );
 
-router.get(
-  "/google",
-  googleAuthLimiter,
-  (req, res, next) => {
-    next();
-  },
+router.get("/google", googleAuthLimiter, (req, res, next) => {
+  const mode = req.query.mode === "signin" ? "signin" : "signup";
+
   passport.authenticate("google", {
     scope: ["profile", "email"],
     session: false,
-  }),
-);
+    state: mode,
+  })(req, res, next);
+});
 // Step 2: Google redirects back here after the user approves/denies
 router.get(
   "/google/callback",

@@ -10,14 +10,16 @@ passport.use(
       clientID: process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
       callbackURL: process.env.GOOGLE_CALLBACK_URL,
+      passReqToCallback: true, // gives the verify function access to req
     },
-    async (accessToken, refreshToken, profile, done) => {
+    async (req, accessToken, refreshToken, profile, done) => {
       try {
+        const mode = req.query.state === "signin" ? "signin" : "signup";
+
         const normalizedProfile = {
           providerId: profile.id,
           name: profile.displayName,
           email: profile.emails?.[0]?.value,
-
           avatarUrl: profile.photos?.[0]?.value,
         };
 
@@ -31,9 +33,17 @@ passport.use(
           );
         }
 
-        // Same helper your other providers use — finds the user by
-        // provider + providerId, creates them if they don't exist yet.
-        const user = await findOrCreateOAuthUser("google", normalizedProfile);
+        const user = await findOrCreateOAuthUser("google", normalizedProfile, {
+          createIfMissing: mode === "signup",
+        });
+
+        if (!user) {
+          return done(null, false, {
+            code: "ACCOUNT_NOT_FOUND",
+            message: "No account found. Please sign up first.",
+          });
+        }
+
         return done(null, user);
       } catch (error) {
         if (error.code === 11000) {
