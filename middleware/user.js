@@ -66,7 +66,7 @@ const readPendingSignup = (req) => {
   const raw = req.cookies?.[PENDING_COOKIE];
   if (!raw) return null;
   try {
-    const p = jwt.verify(raw, process.env.JWT_SECRET);
+    const p = jwt.verify(raw, process.env.JWT_SECRET_KEY);
     return p.purpose === "oauth-signup" ? p : null;
   } catch {
     return null;
