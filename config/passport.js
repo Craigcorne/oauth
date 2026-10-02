@@ -1,7 +1,8 @@
 const passport = require("passport");
-const { findOAuthUser } = require("../middleware/user");
 require("dotenv").config();
 const GoogleStrategy = require("passport-google-oauth20").Strategy;
+const FacebookStrategy = require("passport-facebook").Strategy;
+const { findOrCreateOAuthUser } = require("../middleware/user");
 
 passport.use(
   new GoogleStrategy(
@@ -12,16 +13,11 @@ passport.use(
     },
     async (accessToken, refreshToken, profile, done) => {
       try {
-        const googleEmail = profile.emails?.[0];
-
         const normalizedProfile = {
           providerId: profile.id,
           name: profile.displayName,
-          email: googleEmail?.value,
-          // Needed for safe email-based account linking in findOAuthUser
-          emailVerified:
-            googleEmail?.verified === true ||
-            profile._json?.email_verified === true,
+          email: profile.emails?.[0]?.value,
+
           avatarUrl: profile.photos?.[0]?.value,
         };
 
@@ -35,18 +31,10 @@ passport.use(
           );
         }
 
-        // Finds an existing user (or links by verified email). Never creates.
-        const user = await findOAuthUser("google", normalizedProfile);
-
-        if (user) return done(null, user);
-
-        // No account yet: pass the verified profile on to the callback route,
-        // which stores it in the pendingSignup cookie and redirects to the
-        // signup/terms screen.
-        return done(null, {
-          isPendingSignup: true,
-          profile: normalizedProfile,
-        });
+        // Same helper your other providers use — finds the user by
+        // provider + providerId, creates them if they don't exist yet.
+        const user = await findOrCreateOAuthUser("google", normalizedProfile);
+        return done(null, user);
       } catch (error) {
         if (error.code === 11000) {
           return done(
@@ -59,6 +47,7 @@ passport.use(
     },
   ),
 );
+
 // passport.use(
 //   new FacebookStrategy(
 //     {
