@@ -29,34 +29,51 @@ const port = 5000;
 
 connectDatabase();
 app.set("trust proxy", 1);
+const allowed = [
+  "https://ninetyone.co.ke",
+  "https://www.ninetyone.co.ke",
+  "http://localhost:3000", // dev
+];
+
 app.use(
   cors({
-    origin: [
-      "https://www.ninetyone.co.ke",
-      "https://ninetyone.co.ke",
-      "https://www.ninetyone.co.ke/",
-      "https://ninetyone.co.ke/",
-      "www.ninetyone.co.ke/",
-      "ninetyone.co.ke",
-      "www.ninetyone.co.ke",
-
-      "ninetyone.co.ke",
-      "https://whatsapp-delta-nine.vercel.app",
-      "https://threed-edu.vercel.app",
-      "http://localhost:3000",
-      "http://localhost:3000/",
-    ],
-
-    allowedHeaders: [
-      "Content-Type",
-      "Authorization",
-      "Access-Control-Allow-Credentials",
-      "Access-Control-Allow-Origin",
-    ],
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    origin: (origin, cb) => {
+      if (!origin || allowed.includes(origin)) return cb(null, true);
+      cb(new Error("Not allowed by CORS"));
+    },
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+    credentials: true, // only if you send cookies/auth
   }),
 );
+// app.use(
+//   cors({
+//     origin: [
+//       "https://www.ninetyone.co.ke",
+//       "https://ninetyone.co.ke",
+//       "https://www.ninetyone.co.ke/",
+//       "https://ninetyone.co.ke/",
+//       "www.ninetyone.co.ke/",
+//       "ninetyone.co.ke",
+//       "www.ninetyone.co.ke",
+
+//       "ninetyone.co.ke",
+//       "https://whatsapp-delta-nine.vercel.app",
+//       "https://threed-edu.vercel.app",
+//       "http://localhost:3000",
+//       "http://localhost:3000/",
+//     ],
+
+//     allowedHeaders: [
+//       "Content-Type",
+//       "Authorization",
+//       "Access-Control-Allow-Credentials",
+//       "Access-Control-Allow-Origin",
+//     ],
+//     credentials: true,
+//     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+//   }),
+// );
 
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
