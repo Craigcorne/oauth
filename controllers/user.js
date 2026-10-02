@@ -425,7 +425,7 @@ router.post(
 
       const pending = jwt.sign(
         { id: user._id, purpose: "2fa" },
-        process.env.JWT_SECRET,
+        process.env.JWT_SECRET_key,
         { expiresIn: "10m" },
       );
       res.cookie("pending2fa", pending, {
