@@ -53,7 +53,7 @@ const createOAuthUser = async (provider, profile, nameOverride) => {
 const setPendingSignup = (res, provider, profile) => {
   const token = jwt.sign(
     { purpose: "oauth-signup", provider, profile },
-    process.env.JWT_SECRET,
+    process.env.JWT_SECRET_KEY,
     { expiresIn: "15m" },
   );
   res.cookie(PENDING_COOKIE, token, {
