@@ -34,12 +34,13 @@ app.use(
     origin: [
       "https://www.ninetyone.co.ke",
       "https://ninetyone.co.ke",
-      "www.ninetyone.co.ke",
       "https://ninetyone.co.ke",
-      "ninetyone.co.ke",
       "https://www.ninetyone.co.ke/",
       "https://ninetyone.co.ke/",
       "www.ninetyone.co.ke/",
+      "ninetyone.co.ke",
+      "www.ninetyone.co.ke",
+
       "ninetyone.co.ke",
       "https://whatsapp-delta-nine.vercel.app",
       "https://threed-edu.vercel.app",
