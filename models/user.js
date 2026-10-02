@@ -23,6 +23,8 @@ const userSchema = new mongoose.Schema(
       sparse: true,
       trim: true,
     },
+    termsAcceptedAt: { type: Date },
+    termsVersion: { type: String },
     points: {
       type: Number,
       default: 0,
