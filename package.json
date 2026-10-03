@@ -28,7 +28,7 @@
     "multer": "^2.2.0",
     "node-cache": "^5.1.2",
     "nodemailer": "^10.0.0",
-    "nodemon": "^3.1.14",
+    "nodemon": "^1.14.10",
     "passport": "^0.7.0",
     "passport-facebook": "^3.0.0",
     "passport-google-oauth20": "^2.0.0",
