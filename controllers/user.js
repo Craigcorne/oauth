@@ -227,21 +227,17 @@ router.get("/tiktok", tiktokAuthLimiter, (req, res) => {
 router.post(
   "/tiktok/exchange",
   catchAsyncErrors(async (req, res, next) => {
+    const TIKTOK_CLIENT_KEY = process.env.TIKTOK_CLIENT_KEY;
+    const TIKTOK_REDIRECT_URI = process.env.TIKTOK_REDIRECT_URI;
+    const TIKTOK_CLIENT_SECRET = process.env.TIKTOK_CLIENT_SECRET;
     const { code, state, mode } = req.body;
+    if (!code) return next(new ErrorHandler("Authorization code missing", 400));
 
     const statePayload = readSignedState(state);
     if (!statePayload) {
       return next(new ErrorHandler("Invalid OAuth state (possible CSRF)", 403));
     }
     const allowCreate = statePayload.mode === "signup";
-    const TIKTOK_CLIENT_KEY = process.env.TIKTOK_CLIENT_KEY;
-    const TIKTOK_REDIRECT_URI = process.env.TIKTOK_REDIRECT_URI;
-    const TIKTOK_CLIENT_SECRET = process.env.TIKTOK_CLIENT_SECRET;
-
-    if (!code) return next(new ErrorHandler("Authorization code missing", 400));
-    if (!verifySignedState(state)) {
-      return next(new ErrorHandler("Invalid OAuth state (possible CSRF)", 403));
-    }
 
     /* NOTE: frontend already decoded the query param — do NOT decodeURIComponent again.
        URLSearchParams will re-encode it correctly for TikTok. */
