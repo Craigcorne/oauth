@@ -195,7 +195,8 @@ router.get("/tiktok", tiktokAuthLimiter, (req, res) => {
 router.post(
   "/tiktok/exchange",
   catchAsyncErrors(async (req, res, next) => {
-    const { code, state } = req.body;
+    const { code, state, mode } = req.body;
+    const allowCreate = mode !== "signin";
     const TIKTOK_CLIENT_KEY = process.env.TIKTOK_CLIENT_KEY;
     const TIKTOK_REDIRECT_URI = process.env.TIKTOK_REDIRECT_URI;
     const TIKTOK_CLIENT_SECRET = process.env.TIKTOK_CLIENT_SECRET;
@@ -231,12 +232,29 @@ router.post(
     if (!ttk?.open_id)
       throw new ErrorHandler("Could not fetch TikTok profile", 400);
 
-    const result = await findOrCreateOAuthUser("tiktok", {
-      providerId: ttk.union_id || ttk.open_id,
-      name: ttk.display_name,
-      email: `${ttk.union_id || ttk.open_id}@tiktok.oauth.local`,
-      avatarUrl: ttk.avatar_url,
-    });
+    let result;
+    try {
+      result = await findOrCreateOAuthUser(
+        "tiktok",
+        {
+          providerId: ttk.union_id || ttk.open_id,
+          name: ttk.display_name,
+          email: `${ttk.union_id || ttk.open_id}@tiktok.oauth.local`,
+          avatarUrl: ttk.avatar_url,
+        },
+        { allowCreate },
+      );
+    } catch (err) {
+      if (err.code === "USER_NOT_FOUND") {
+        return res.status(404).json({
+          source: "tiktok-oauth",
+          success: false,
+          code: "USER_NOT_FOUND",
+          message: err.message,
+        });
+      }
+      throw err;
+    }
     const user = result.user || result;
     const isNew = result.isNew ?? false;
 
@@ -289,25 +307,34 @@ router.get(
   }),
 );
 
-router.get(
-  "/google",
-  googleAuthLimiter,
-  (req, res, next) => {
-    next();
-  },
+router.get("/google", googleAuthLimiter, (req, res, next) => {
+  const state = req.query.mode === "signin" ? "signin" : "signup";
   passport.authenticate("google", {
     scope: ["profile", "email"],
     session: false,
-  }),
-);
+    state,
+  })(req, res, next);
+});
 // Step 2: Google redirects back here after the user approves/denies
 router.get(
   "/google/callback",
   googleCallbackLimiter,
-  passport.authenticate("google", {
-    session: false,
-    failureRedirect: `${FRONTEND_URL}/login?error=oauth_failed`,
-  }),
+  // Custom callback so we can turn errors into a redirect the popup understands
+  (req, res, next) => {
+    passport.authenticate("google", { session: false }, (err, user) => {
+      if (err) {
+        const code =
+          err.code === "USER_NOT_FOUND" ? "&code=USER_NOT_FOUND" : "";
+        return res.redirect(
+          `${FRONTEND_URL}/oauth/result?provider=google&success=false&message=${encodeURIComponent(err.message)}${code}`,
+        );
+      }
+      if (!user)
+        return res.redirect(`${FRONTEND_URL}/login?error=oauth_failed`);
+      req.user = user;
+      next();
+    })(req, res, next);
+  },
   async (req, res) => {
     try {
       const user = req.user;
