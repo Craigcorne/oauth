@@ -23,6 +23,12 @@ const { recordPointsLedgerEntry } = require("../utils/pointsLedger");
 const { findOrCreateOAuthUser } = require("../middleware/user");
 const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
 
+function sign(body) {
+  return crypto
+    .createHmac("sha256", process.env.OAUTH_STATE_SECRET)
+    .update(body)
+    .digest("base64url");
+}
 function closePopupWithMessage(res, source) {
   res.status(200).type("html").send(`
       <script>
@@ -147,6 +153,35 @@ function createSignedState() {
   return `${payload}.${signature}`;
 }
 
+function createSignedState2(payload = {}) {
+  const body = Buffer.from(
+    JSON.stringify({
+      ...payload,
+      n: crypto.randomBytes(16).toString("hex"),
+      exp: Date.now() + 10 * 60 * 1000,
+    }),
+  ).toString("base64url");
+  return `${body}.${sign(body)}`;
+}
+
+// returns the payload, or null if invalid/expired
+function readSignedState(state) {
+  if (typeof state !== "string") return null;
+  const [body, sig] = state.split(".");
+  if (!body || !sig) return null;
+
+  const a = Buffer.from(sig);
+  const b = Buffer.from(sign(body));
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+
+  try {
+    const payload = JSON.parse(Buffer.from(body, "base64url").toString());
+    return payload.exp > Date.now() ? payload : null;
+  } catch {
+    return null;
+  }
+}
+
 function verifySignedState(state) {
   if (!state) return false;
   const parts = state.split(".");
@@ -173,10 +208,12 @@ function verifySignedState(state) {
 
 /* ─── Step 1: redirect the user to TikTok's consent screen ─── */
 router.get("/tiktok", tiktokAuthLimiter, (req, res) => {
+  const mode = req.query.mode === "signup" ? "signup" : "signin"; // default = no creation
+
   const TIKTOK_CLIENT_KEY = process.env.TIKTOK_CLIENT_KEY;
   const TIKTOK_REDIRECT_URI = process.env.TIKTOK_REDIRECT_URI;
 
-  const state = createSignedState(); // was: crypto.randomBytes(...) + res.cookie(...)
+  const state = createSignedState2({ mode }); // was: crypto.randomBytes(...) + res.cookie(...)
 
   const url =
     "https://www.tiktok.com/v2/auth/authorize/" +
@@ -196,7 +233,12 @@ router.post(
   "/tiktok/exchange",
   catchAsyncErrors(async (req, res, next) => {
     const { code, state, mode } = req.body;
-    const allowCreate = mode !== "signin";
+
+    const statePayload = readSignedState(state);
+    if (!statePayload) {
+      return next(new ErrorHandler("Invalid OAuth state (possible CSRF)", 403));
+    }
+    const allowCreate = statePayload.mode === "signup";
     const TIKTOK_CLIENT_KEY = process.env.TIKTOK_CLIENT_KEY;
     const TIKTOK_REDIRECT_URI = process.env.TIKTOK_REDIRECT_URI;
     const TIKTOK_CLIENT_SECRET = process.env.TIKTOK_CLIENT_SECRET;
