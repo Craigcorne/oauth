@@ -141,11 +141,13 @@ const googleCallbackLimiter = rateLimit({
    anything for the browser to potentially block. ─── */
 const TIKTOK_STATE_SECRET =
   process.env.TIKTOK_STATE_SECRET || process.env.JWT_SECRET_KEY;
+const STATE_TTL_MS = 10 * 60 * 1000;
 
-function createSignedState() {
+function createSignedState(mode = "signin") {
+  const safeMode = mode === "signup" ? "signup" : "signin";
   const nonce = crypto.randomBytes(16).toString("hex");
   const timestamp = Date.now().toString();
-  const payload = `${nonce}.${timestamp}`;
+  const payload = `${nonce}.${timestamp}.${safeMode}`;
   const signature = crypto
     .createHmac("sha256", TIKTOK_STATE_SECRET)
     .update(payload)
@@ -153,33 +155,29 @@ function createSignedState() {
   return `${payload}.${signature}`;
 }
 
-function createSignedState2(payload = {}) {
-  const body = Buffer.from(
-    JSON.stringify({
-      ...payload,
-      n: crypto.randomBytes(16).toString("hex"),
-      exp: Date.now() + 10 * 60 * 1000,
-    }),
-  ).toString("base64url");
-  return `${body}.${sign(body)}`;
-}
-
 // returns the payload, or null if invalid/expired
 function readSignedState(state) {
   if (typeof state !== "string") return null;
-  const [body, sig] = state.split(".");
-  if (!body || !sig) return null;
 
-  const a = Buffer.from(sig);
-  const b = Buffer.from(sign(body));
+  const parts = state.split(".");
+  if (parts.length !== 4) return null;
+
+  const [nonce, timestamp, mode, signature] = parts;
+  if (mode !== "signin" && mode !== "signup") return null;
+
+  const expected = crypto
+    .createHmac("sha256", TIKTOK_STATE_SECRET)
+    .update(`${nonce}.${timestamp}.${mode}`)
+    .digest("hex");
+
+  const a = Buffer.from(signature);
+  const b = Buffer.from(expected);
   if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
 
-  try {
-    const payload = JSON.parse(Buffer.from(body, "base64url").toString());
-    return payload.exp > Date.now() ? payload : null;
-  } catch {
-    return null;
-  }
+  const age = Date.now() - Number(timestamp);
+  if (!Number.isFinite(age) || age < 0 || age > STATE_TTL_MS) return null;
+
+  return { mode };
 }
 
 function verifySignedState(state) {
@@ -208,13 +206,10 @@ function verifySignedState(state) {
 
 /* ─── Step 1: redirect the user to TikTok's consent screen ─── */
 router.get("/tiktok", tiktokAuthLimiter, (req, res) => {
-  const mode = req.query.mode === "signup" ? "signup" : "signin"; // default = no creation
-
   const TIKTOK_CLIENT_KEY = process.env.TIKTOK_CLIENT_KEY;
   const TIKTOK_REDIRECT_URI = process.env.TIKTOK_REDIRECT_URI;
-
-  const state = createSignedState2({ mode }); // was: crypto.randomBytes(...) + res.cookie(...)
-
+  const mode = req.query.mode === "signup" ? "signup" : "signin";
+  const state = createSignedState2({ mode });
   const url =
     "https://www.tiktok.com/v2/auth/authorize/" +
     "?client_key=" +
