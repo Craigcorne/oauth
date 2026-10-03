@@ -209,7 +209,7 @@ router.get("/tiktok", tiktokAuthLimiter, (req, res) => {
   const TIKTOK_CLIENT_KEY = process.env.TIKTOK_CLIENT_KEY;
   const TIKTOK_REDIRECT_URI = process.env.TIKTOK_REDIRECT_URI;
   const mode = req.query.mode === "signup" ? "signup" : "signin";
-  const state = createSignedState2({ mode });
+  const state = createSignedState({ mode });
   const url =
     "https://www.tiktok.com/v2/auth/authorize/" +
     "?client_key=" +
