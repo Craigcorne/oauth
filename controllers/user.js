@@ -23,12 +23,6 @@ const { recordPointsLedgerEntry } = require("../utils/pointsLedger");
 const { findOrCreateOAuthUser } = require("../middleware/user");
 const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
 
-function sign(body) {
-  return crypto
-    .createHmac("sha256", process.env.OAUTH_STATE_SECRET)
-    .update(body)
-    .digest("base64url");
-}
 function closePopupWithMessage(res, source) {
   res.status(200).type("html").send(`
       <script>
@@ -141,43 +135,17 @@ const googleCallbackLimiter = rateLimit({
    anything for the browser to potentially block. ─── */
 const TIKTOK_STATE_SECRET =
   process.env.TIKTOK_STATE_SECRET || process.env.JWT_SECRET_KEY;
-const STATE_TTL_MS = 10 * 60 * 1000;
 
-function createSignedState(mode = "signin") {
+function createSignedState() {
   const safeMode = mode === "signup" ? "signup" : "signin";
   const nonce = crypto.randomBytes(16).toString("hex");
   const timestamp = Date.now().toString();
-  const payload = `${nonce}.${timestamp}.${safeMode}`;
+  const payload = `${nonce}.${timestamp}`;
   const signature = crypto
     .createHmac("sha256", TIKTOK_STATE_SECRET)
     .update(payload)
     .digest("hex");
   return `${payload}.${signature}`;
-}
-
-// returns the payload, or null if invalid/expired
-function readSignedState(state) {
-  if (typeof state !== "string") return null;
-
-  const parts = state.split(".");
-  if (parts.length !== 4) return null;
-
-  const [nonce, timestamp, mode, signature] = parts;
-  if (mode !== "signin" && mode !== "signup") return null;
-
-  const expected = crypto
-    .createHmac("sha256", TIKTOK_STATE_SECRET)
-    .update(`${nonce}.${timestamp}.${mode}`)
-    .digest("hex");
-
-  const a = Buffer.from(signature);
-  const b = Buffer.from(expected);
-  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
-
-  const age = Date.now() - Number(timestamp);
-  if (!Number.isFinite(age) || age < 0 || age > STATE_TTL_MS) return null;
-
-  return { mode };
 }
 
 function verifySignedState(state) {
@@ -208,8 +176,9 @@ function verifySignedState(state) {
 router.get("/tiktok", tiktokAuthLimiter, (req, res) => {
   const TIKTOK_CLIENT_KEY = process.env.TIKTOK_CLIENT_KEY;
   const TIKTOK_REDIRECT_URI = process.env.TIKTOK_REDIRECT_URI;
-  const mode = req.query.mode === "signup" ? "signup" : "signin";
-  const state = createSignedState({ mode });
+  const mode = req.query.mode === "signup" ? "signup" : "signin"; // default: never create
+  const state = createSignedState(mode);
+
   const url =
     "https://www.tiktok.com/v2/auth/authorize/" +
     "?client_key=" +
@@ -227,17 +196,16 @@ router.get("/tiktok", tiktokAuthLimiter, (req, res) => {
 router.post(
   "/tiktok/exchange",
   catchAsyncErrors(async (req, res, next) => {
+    const { code, state, mode } = req.body;
+    const allowCreate = mode !== "signin";
     const TIKTOK_CLIENT_KEY = process.env.TIKTOK_CLIENT_KEY;
     const TIKTOK_REDIRECT_URI = process.env.TIKTOK_REDIRECT_URI;
     const TIKTOK_CLIENT_SECRET = process.env.TIKTOK_CLIENT_SECRET;
-    const { code, state, mode } = req.body;
-    if (!code) return next(new ErrorHandler("Authorization code missing", 400));
 
-    const statePayload = readSignedState(state);
-    if (!statePayload) {
+    if (!code) return next(new ErrorHandler("Authorization code missing", 400));
+    if (!verifySignedState(state)) {
       return next(new ErrorHandler("Invalid OAuth state (possible CSRF)", 403));
     }
-    const allowCreate = statePayload.mode === "signup";
 
     /* NOTE: frontend already decoded the query param — do NOT decodeURIComponent again.
        URLSearchParams will re-encode it correctly for TikTok. */
