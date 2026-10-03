@@ -137,7 +137,6 @@ const TIKTOK_STATE_SECRET =
   process.env.TIKTOK_STATE_SECRET || process.env.JWT_SECRET_KEY;
 
 function createSignedState() {
-  const safeMode = mode === "signup" ? "signup" : "signin";
   const nonce = crypto.randomBytes(16).toString("hex");
   const timestamp = Date.now().toString();
   const payload = `${nonce}.${timestamp}`;
@@ -176,8 +175,8 @@ function verifySignedState(state) {
 router.get("/tiktok", tiktokAuthLimiter, (req, res) => {
   const TIKTOK_CLIENT_KEY = process.env.TIKTOK_CLIENT_KEY;
   const TIKTOK_REDIRECT_URI = process.env.TIKTOK_REDIRECT_URI;
-  const mode = req.query.mode === "signup" ? "signup" : "signin"; // default: never create
-  const state = createSignedState(mode);
+
+  const state = createSignedState(); // was: crypto.randomBytes(...) + res.cookie(...)
 
   const url =
     "https://www.tiktok.com/v2/auth/authorize/" +
