@@ -133,8 +133,7 @@ const googleCallbackLimiter = rateLimit({
    server-side, we sign it with an HMAC. Verifying it just means
    recomputing the signature — no cookie, no storage, no cross-site
    anything for the browser to potentially block. ─── */
-const TIKTOK_STATE_SECRET =
-  process.env.TIKTOK_STATE_SECRET || process.env.JWT_SECRET_KEY;
+const TIKTOK_STATE_SECRET = process.env.JWT_SECRET_KEY;
 
 function createSignedState() {
   const nonce = crypto.randomBytes(16).toString("hex");
