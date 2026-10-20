@@ -1284,70 +1284,60 @@ router.delete(
 
 // ─── Inventory Summary ───────────────────────────────────
 
-/**
- * @route   GET /api/products/:id/inventory
- * @desc    Get inventory summary for a product
- */
+const LOW_STOCK_THRESHOLD = 5;
+
+const getStockStatus = (stock) =>
+  stock === 0
+    ? "OUT_OF_STOCK"
+    : stock < LOW_STOCK_THRESHOLD
+      ? "LOW_STOCK"
+      : "IN_STOCK";
+
 router.get(
-  "/:id/inventory",
+  "/inventory",
   isAuthenticated,
   isAdmin("admin"),
   catchAsyncErrors(async (req, res) => {
     try {
-      if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
-        return res
-          .status(400)
-          .json({ success: false, message: "Invalid product ID" });
+      const products = await Product.find({})
+        .select("name category.name variants updatedAt")
+        .lean();
+
+      const items = [];
+
+      for (const product of products) {
+        for (const variant of product.variants) {
+          for (const s of variant.sizes) {
+            items.push({
+              productId: product._id,
+              product: product.name,
+              variant: `${variant.color.name} / ${s.size}`,
+              sku: s.sku,
+              category: product.category?.name || "—",
+              stock: s.stock,
+              reorder: LOW_STOCK_THRESHOLD,
+              lastUpdated: product.updatedAt,
+              status: getStockStatus(s.stock),
+            });
+          }
+        }
       }
 
-      const cacheKey = CACHE_KEYS.inventory(req.params.id);
-      let cached = productCache.get(cacheKey);
-      let cacheHit = false;
+      // Most urgent first
+      const severity = { OUT_OF_STOCK: 0, LOW_STOCK: 1, IN_STOCK: 2 };
+      items.sort(
+        (a, b) => severity[a.status] - severity[b.status] || a.stock - b.stock,
+      );
 
-      if (cached === undefined) {
-        const product = await Product.findById(req.params.id).lean();
-        if (!product)
-          return res
-            .status(404)
-            .json({ success: false, message: "Product not found" });
+      const summary = {
+        total: items.length,
+        outOfStock: items.filter((i) => i.status === "OUT_OF_STOCK").length,
+        lowStock: items.filter((i) => i.status === "LOW_STOCK").length,
+      };
 
-        const summary = product.variants.map((variant) => ({
-          color: variant.color,
-          images: variant.images.length,
-          sizes: variant.sizes.map((s) => ({
-            size: s.size,
-            sku: s.sku,
-            stock: s.stock,
-            status:
-              s.stock === 0
-                ? "OUT_OF_STOCK"
-                : s.stock < 5
-                  ? "LOW_STOCK"
-                  : "IN_STOCK",
-          })),
-          totalStock: variant.sizes.reduce((sum, s) => sum + s.stock, 0),
-        }));
-
-        const grandTotal = summary.reduce((sum, v) => sum + v.totalStock, 0);
-
-        cached = {
-          productId: product._id,
-          name: product.name,
-          totalInventory: grandTotal,
-          variants: summary,
-        };
-        productCache.set(cacheKey, cached);
-      } else {
-        cacheHit = true;
-      }
-
-      res.status(200).json({
-        success: true,
-        cached: cacheHit,
-        data: cached,
-      });
+      res.status(200).json({ success: true, summary, items });
     } catch (err) {
-      console.error("GET INVENTORY ERROR:", err);
+      console.error("GET ALL INVENTORY ERROR:", err);
       res.status(500).json({ success: false, message: err.message });
     }
   }),
