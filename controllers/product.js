@@ -200,6 +200,8 @@ const getStockStatus = (stock) =>
       ? "LOW_STOCK"
       : "IN_STOCK";
 
+const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 // ─── CRUD Routes ─────────────────────────────────────────
 
 // @desc    Create a new product
@@ -384,43 +386,121 @@ router.get(
   isAdmin("admin"),
   catchAsyncErrors(async (req, res) => {
     try {
-      const products = await Product.find({})
-        .select("name category.name variants updatedAt")
-        .lean();
-
-      const items = [];
-
-      for (const product of products) {
-        for (const variant of product.variants) {
-          for (const s of variant.sizes) {
-            items.push({
-              productId: product._id,
-              product: product.name,
-              variant: `${variant.color.name} / ${s.size}`,
-              sku: s.sku,
-              category: product.category?.name || "—",
-              stock: s.stock,
-              reorder: LOW_STOCK_THRESHOLD,
-              lastUpdated: product.updatedAt,
-              status: getStockStatus(s.stock),
-            });
-          }
-        }
-      }
-
-      // Most urgent first
-      const severity = { OUT_OF_STOCK: 0, LOW_STOCK: 1, IN_STOCK: 2 };
-      items.sort(
-        (a, b) => severity[a.status] - severity[b.status] || a.stock - b.stock,
+      const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+      const limit = Math.min(
+        Math.max(parseInt(req.query.limit, 10) || 10, 1),
+        100,
       );
+      const search = String(req.query.search || "").trim();
 
-      const summary = {
-        total: items.length,
-        outOfStock: items.filter((i) => i.status === "OUT_OF_STOCK").length,
-        lowStock: items.filter((i) => i.status === "LOW_STOCK").length,
-      };
+      // Applied only to the visible rows, not the header summary
+      const searchMatch = search
+        ? (() => {
+            const rx = { $regex: escapeRegex(search), $options: "i" };
+            return {
+              $or: [
+                { product: rx },
+                { sku: rx },
+                { category: rx },
+                { variant: rx },
+              ],
+            };
+          })()
+        : {};
 
-      res.status(200).json({ success: true, summary, items });
+      const [result] = await Product.aggregate([
+        // 1 row per SKU (variant × size)
+        { $unwind: "$variants" },
+        { $unwind: "$variants.sizes" },
+        {
+          $project: {
+            _id: 0,
+            productId: "$_id",
+            product: "$name",
+            variant: {
+              $concat: ["$variants.color.name", " / ", "$variants.sizes.size"],
+            },
+            sku: "$variants.sizes.sku",
+            category: { $ifNull: ["$category.name", "—"] },
+            stock: "$variants.sizes.stock",
+            reorder: { $literal: LOW_STOCK_THRESHOLD },
+            lastUpdated: "$updatedAt",
+            status: {
+              $switch: {
+                branches: [
+                  {
+                    case: { $eq: ["$variants.sizes.stock", 0] },
+                    then: "OUT_OF_STOCK",
+                  },
+                  {
+                    case: {
+                      $lt: ["$variants.sizes.stock", LOW_STOCK_THRESHOLD],
+                    },
+                    then: "LOW_STOCK",
+                  },
+                ],
+                default: "IN_STOCK",
+              },
+            },
+            severity: {
+              $switch: {
+                branches: [
+                  {
+                    case: { $eq: ["$variants.sizes.stock", 0] },
+                    then: 0,
+                  },
+                  {
+                    case: {
+                      $lt: ["$variants.sizes.stock", LOW_STOCK_THRESHOLD],
+                    },
+                    then: 1,
+                  },
+                ],
+                default: 2,
+              },
+            },
+          },
+        },
+        {
+          $facet: {
+            // Header badge: counts across ALL SKUs, ignoring search
+            summary: [{ $group: { _id: "$status", count: { $sum: 1 } } }],
+
+            // Current page of rows: most urgent first, stable tiebreak on sku
+            items: [
+              { $match: searchMatch },
+              { $sort: { severity: 1, stock: 1, sku: 1 } },
+              { $skip: (page - 1) * limit },
+              { $limit: limit },
+              { $project: { severity: 0 } },
+            ],
+
+            // Total rows matching the search (for page count)
+            total: [{ $match: searchMatch }, { $count: "count" }],
+          },
+        },
+      ]);
+
+      const counts = Object.fromEntries(
+        result.summary.map((r) => [r._id, r.count]),
+      );
+      const total = result.total[0]?.count || 0;
+
+      res.status(200).json({
+        success: true,
+        summary: {
+          total: Object.values(counts).reduce((a, b) => a + b, 0),
+          outOfStock: counts.OUT_OF_STOCK || 0,
+          lowStock: counts.LOW_STOCK || 0,
+        },
+        items: result.items,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.max(1, Math.ceil(total / limit)),
+        },
+      });
     } catch (err) {
       console.error("GET ALL INVENTORY ERROR:", err);
       res.status(500).json({ success: false, message: err.message });
