@@ -191,6 +191,15 @@ function uploadBufferToCloudinary(buffer, folder, attempt = 1) {
   });
 }
 
+const LOW_STOCK_THRESHOLD = 5;
+
+const getStockStatus = (stock) =>
+  stock === 0
+    ? "OUT_OF_STOCK"
+    : stock < LOW_STOCK_THRESHOLD
+      ? "LOW_STOCK"
+      : "IN_STOCK";
+
 // ─── CRUD Routes ─────────────────────────────────────────
 
 // @desc    Create a new product
@@ -363,6 +372,57 @@ router.post(
           error: err.message,
         });
       }
+      res.status(500).json({ success: false, message: err.message });
+    }
+  }),
+);
+// ─── Inventory Summary ───────────────────────────────────
+
+router.get(
+  "/inventory",
+  isAuthenticated,
+  isAdmin("admin"),
+  catchAsyncErrors(async (req, res) => {
+    try {
+      const products = await Product.find({})
+        .select("name category.name variants updatedAt")
+        .lean();
+
+      const items = [];
+
+      for (const product of products) {
+        for (const variant of product.variants) {
+          for (const s of variant.sizes) {
+            items.push({
+              productId: product._id,
+              product: product.name,
+              variant: `${variant.color.name} / ${s.size}`,
+              sku: s.sku,
+              category: product.category?.name || "—",
+              stock: s.stock,
+              reorder: LOW_STOCK_THRESHOLD,
+              lastUpdated: product.updatedAt,
+              status: getStockStatus(s.stock),
+            });
+          }
+        }
+      }
+
+      // Most urgent first
+      const severity = { OUT_OF_STOCK: 0, LOW_STOCK: 1, IN_STOCK: 2 };
+      items.sort(
+        (a, b) => severity[a.status] - severity[b.status] || a.stock - b.stock,
+      );
+
+      const summary = {
+        total: items.length,
+        outOfStock: items.filter((i) => i.status === "OUT_OF_STOCK").length,
+        lowStock: items.filter((i) => i.status === "LOW_STOCK").length,
+      };
+
+      res.status(200).json({ success: true, summary, items });
+    } catch (err) {
+      console.error("GET ALL INVENTORY ERROR:", err);
       res.status(500).json({ success: false, message: err.message });
     }
   }),
@@ -1277,67 +1337,6 @@ router.delete(
       res.status(200).json({ success: true, data: product });
     } catch (err) {
       console.error("DELETE VARIANT ERROR:", err);
-      res.status(500).json({ success: false, message: err.message });
-    }
-  }),
-);
-
-// ─── Inventory Summary ───────────────────────────────────
-
-const LOW_STOCK_THRESHOLD = 5;
-
-const getStockStatus = (stock) =>
-  stock === 0
-    ? "OUT_OF_STOCK"
-    : stock < LOW_STOCK_THRESHOLD
-      ? "LOW_STOCK"
-      : "IN_STOCK";
-
-router.get(
-  "/inventory",
-  isAuthenticated,
-  isAdmin("admin"),
-  catchAsyncErrors(async (req, res) => {
-    try {
-      const products = await Product.find({})
-        .select("name category.name variants updatedAt")
-        .lean();
-
-      const items = [];
-
-      for (const product of products) {
-        for (const variant of product.variants) {
-          for (const s of variant.sizes) {
-            items.push({
-              productId: product._id,
-              product: product.name,
-              variant: `${variant.color.name} / ${s.size}`,
-              sku: s.sku,
-              category: product.category?.name || "—",
-              stock: s.stock,
-              reorder: LOW_STOCK_THRESHOLD,
-              lastUpdated: product.updatedAt,
-              status: getStockStatus(s.stock),
-            });
-          }
-        }
-      }
-
-      // Most urgent first
-      const severity = { OUT_OF_STOCK: 0, LOW_STOCK: 1, IN_STOCK: 2 };
-      items.sort(
-        (a, b) => severity[a.status] - severity[b.status] || a.stock - b.stock,
-      );
-
-      const summary = {
-        total: items.length,
-        outOfStock: items.filter((i) => i.status === "OUT_OF_STOCK").length,
-        lowStock: items.filter((i) => i.status === "LOW_STOCK").length,
-      };
-
-      res.status(200).json({ success: true, summary, items });
-    } catch (err) {
-      console.error("GET ALL INVENTORY ERROR:", err);
       res.status(500).json({ success: false, message: err.message });
     }
   }),
