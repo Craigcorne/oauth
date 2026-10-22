@@ -10,7 +10,7 @@ const cloudinary = require("cloudinary").v2;
 const NodeCache = require("node-cache");
 const QRCodeModel = require("../models/qrCode");
 const { syncProductQRCodes } = require("../utils/qrCodeService");
-
+const crypto = require("crypto");
 const router = express.Router();
 
 /* ─── Cache Setup ─────────────────────────────────────────────────── */
@@ -157,29 +157,44 @@ const validateProduct = (req, res, next) => {
   next();
 };
 
-// Assumes `cloudinary` (the configured v2 instance) is already required
-// in this file, same as your original.
-
-function uploadBufferToCloudinary(buffer, folder, attempt = 1) {
+function uploadBufferToCloudinary(
+  buffer,
+  folder,
+  attempt = 1,
+  publicId = crypto.randomUUID(),
+) {
   const MAX_ATTEMPTS = 3;
 
   return new Promise((resolve, reject) => {
     const stream = cloudinary.uploader.upload_stream(
-      { folder, resource_type: "image" },
+      {
+        folder,
+        public_id: publicId, // same id on every retry
+        overwrite: true, // a retry replaces any earlier copy
+        resource_type: "image",
+        format: "webp",
+        transformation: [
+          { width: 1600, height: 1600, crop: "limit", quality: 80 },
+        ],
+      },
       (err, result) => {
         if (!err) return resolve(result);
 
-        const isTimeout = err.name === "TimeoutError" || err.http_code === 499;
+        const isRetryable =
+          err.name === "TimeoutError" ||
+          err.http_code === 499 ||
+          err.code === "ECONNRESET" ||
+          err.code === "ETIMEDOUT";
 
-        // Only retry on timeouts — a bad file or auth error will just
-        // fail the same way again, so don't waste the delay on those.
-        if (isTimeout && attempt < MAX_ATTEMPTS) {
+        if (isRetryable && attempt < MAX_ATTEMPTS) {
           const backoffMs = 1000 * 2 ** (attempt - 1); // 1s, then 2s
           setTimeout(() => {
-            uploadBufferToCloudinary(buffer, folder, attempt + 1).then(
-              resolve,
-              reject,
-            );
+            uploadBufferToCloudinary(
+              buffer,
+              folder,
+              attempt + 1,
+              publicId,
+            ).then(resolve, reject);
           }, backoffMs);
           return;
         }
@@ -187,6 +202,7 @@ function uploadBufferToCloudinary(buffer, folder, attempt = 1) {
         reject(err);
       },
     );
+
     stream.end(buffer);
   });
 }
