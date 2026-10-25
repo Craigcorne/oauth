@@ -34,7 +34,7 @@ app.set("trust proxy", 1);
 const allowed = [
   "https://ninetyone.co.ke",
   "https://www.ninetyone.co.ke",
-  "http://localhost:3000",
+  // "http://localhost:3000",
 ];
 
 app.use(
