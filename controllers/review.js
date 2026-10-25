@@ -279,14 +279,28 @@ const getRatingStats = async (req, res) => {
 };
 const reviewUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024, files: 2 }, // 5 MB each, max 2 files
-  fileFilter: (req, file, cb) =>
-    file.mimetype.startsWith("image/")
-      ? cb(null, true)
-      : cb(new Error("Only image files are allowed")),
+  limits: { fileSize: 10 * 1024 * 1024, files: 2 },
+  fileFilter: (req, file, cb) => {
+    const okMime = file.mimetype.startsWith("image/");
+    const okExt = /\.(jpe?g|png|webp|heic|heif)$/i.test(file.originalname);
+    const unknownMime = file.mimetype === "application/octet-stream";
+    if (okMime || (unknownMime && okExt)) return cb(null, true);
+    cb(new Error("Only image files are allowed"));
+  },
 });
+const handleReviewUpload = (req, res, next) => {
+  reviewUpload.any()(req, res, (err) => {
+    if (!err) return next();
 
-router.post("/reviews", isAuthenticated, reviewUpload.any(), createReview);
+    let message = err.message;
+    if (err.code === "LIMIT_FILE_SIZE")
+      message = "Each image must be under 10 MB";
+    if (err.code === "LIMIT_FILE_COUNT") message = "Maximum 2 images allowed";
+
+    return res.status(400).json({ success: false, message });
+  });
+};
+router.post("/reviews", isAuthenticated, handleReviewUpload, createReview);
 router.get("/reviews/check", isAuthenticated, checkReviewStatus);
 router.get("/product/:productId", getProductReviews);
 router.get("/stats", getRatingStats);
