@@ -172,9 +172,9 @@ function uploadBufferToCloudinary(
         public_id: publicId, // same id on every retry
         overwrite: true, // a retry replaces any earlier copy
         resource_type: "image",
-        format: "webp",
+
         transformation: [
-          { width: 1600, height: 1600, crop: "limit", quality: 80 },
+          { width: 2400, height: 2400, crop: "limit", quality: "auto:best" },
         ],
       },
       (err, result) => {
