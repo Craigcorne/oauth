@@ -21,8 +21,6 @@ const collection = require("./controllers/collections");
 const transaction = require("./controllers/transactions");
 const order = require("./controllers/order");
 const mongoose = require("mongoose");
-const session = require("express-session");
-const MongoStore = require("connect-mongo"); // v4+ uses MongoStore.create(...)
 const connectDatabase = require("./config/db");
 const app = express();
 
@@ -102,26 +100,12 @@ app.use(express.urlencoded({ limit: "50mb", extended: true }));
 app.use(cookieParser());
 
 app.use(passport.initialize());
-app.use(
-  session({
-    secret: process.env.JWT_SECRET_KEY,
-    resave: false,
-    saveUninitialized: false,
-    // store: MongoStore.create(...),   // commented out to test
-    cookie: { httpOnly: true, secure: false, sameSite: "lax" },
-  }),
-);
 
 //config cloundinary
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
-});
-
-app.use((req, res, next) => {
-  console.log("session exists:", !!req.session, req.method, req.path);
-  next();
 });
 
 // Routes AFTER middleware
