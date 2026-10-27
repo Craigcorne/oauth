@@ -1017,23 +1017,18 @@ router.put(
 );
 
 // user logout
+// logout route
 router.get(
   "/logout",
-  catchAsyncErrors(async (req, res, next) => {
-    try {
-      res.cookie("token", null, {
-        expires: new Date(Date.now()),
-        httpOnly: true,
-        sameSite: "none",
-        secure: true,
-      });
-      res.status(201).json({
-        success: true,
-        message: "Log out successful!",
-      });
-    } catch (error) {
-      return next(new ErrorHandler(error.message, 500));
-    }
+  catchAsyncErrors(async (req, res) => {
+    res.clearCookie("token", baseCookieOptions);
+    // Also clear the old host-only cookie so existing sessions can't linger
+    res.clearCookie("token", {
+      httpOnly: true,
+      secure: true,
+      sameSite: "none",
+    });
+    res.status(200).json({ success: true, message: "Log out successful!" });
   }),
 );
 
