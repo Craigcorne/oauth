@@ -384,6 +384,72 @@ router.get(
 );
 
 // oauth
+// router.post(
+//   "/oauth-login",
+//   oauthLoginLimiter,
+//   catchAsyncErrors(async (req, res, next) => {
+//     const { provider } = req.body;
+
+//     if (
+//       typeof provider !== "string" ||
+//       !Object.hasOwn(providerVerifiers, provider)
+//     ) {
+//       return next(new ErrorHandler("Invalid or missing OAuth provider", 400));
+//     }
+
+//     let profile;
+//     try {
+//       profile = await providerVerifiers[provider](req.body);
+//     } catch (err) {
+//       console.error(`OAuth verify failed (${provider}):`, err.message);
+//       return next(new ErrorHandler("Could not verify OAuth token", 401));
+//     }
+
+//     if (!profile?.providerId) {
+//       return next(new ErrorHandler("Could not verify OAuth token", 401));
+//     }
+
+//     let user, created;
+//     try {
+//       ({ user, created } = await findOrCreateOAuthUser(provider, profile));
+//     } catch (err) {
+//       console.error("findOrCreateOAuthUser failed:", err);
+//       return next(
+//         new ErrorHandler("Sign-in failed", err.code === 11000 ? 409 : 500),
+//       );
+//     }
+
+//     assertActive(user); // must throw if inactive
+
+//     if (!created && user.role !== "user") {
+//       const channel = await generateAndSendTwoFactorCode(user);
+
+//       const pending = jwt.sign(
+//         { id: user._id, purpose: "2fa" },
+//         process.env.JWT_SECRET,
+//         { expiresIn: "10m" },
+//       );
+//       res.cookie("pending2fa", pending, {
+//         httpOnly: true,
+//         secure: true,
+//         sameSite: "lax",
+//         maxAge: 10 * 60 * 1000,
+//       });
+
+//       return res.status(200).json({
+//         source: provider,
+//         success: true,
+//         require2FA: true,
+//         message: "Two-factor authentication required",
+//         channel,
+//       });
+//     }
+
+//     sendToken(user, created ? 201 : 200, res);
+//   }),
+// );
+
+// ouath login
 router.post(
   "/oauth-login",
   oauthLoginLimiter,
@@ -419,22 +485,11 @@ router.post(
       );
     }
 
-    assertActive(user); // must throw if inactive
+    assertActive(user);
 
     if (!created && user.role !== "user") {
       const channel = await generateAndSendTwoFactorCode(user);
-
-      const pending = jwt.sign(
-        { id: user._id, purpose: "2fa" },
-        process.env.JWT_SECRET,
-        { expiresIn: "10m" },
-      );
-      res.cookie("pending2fa", pending, {
-        httpOnly: true,
-        secure: true,
-        sameSite: "lax",
-        maxAge: 10 * 60 * 1000,
-      });
+      await startPending2FA(req, user);
 
       return res.status(200).json({
         source: provider,
@@ -445,49 +500,135 @@ router.post(
       });
     }
 
-    sendToken(user, created ? 201 : 200, res);
+    await loginSession(req, user);
+    res.status(created ? 201 : 200).json({
+      source: provider,
+      success: true,
+      user, // or whatever sendToken returned, minus the token
+    });
   }),
 );
+
+// /* ── Verify 2FA Code ── */
+// router.post(
+//   "/verify-2fa",
+//   twoFALimiter,
+//   catchAsyncErrors(async (req, res, next) => {
+//     try {
+//       const { userId, code } = req.body;
+
+//       if (!userId || !code) {
+//         return next(new ErrorHandler("User ID and code are required", 400));
+//       }
+
+//       const user = await User.findById(userId).select(
+//         "+twoFactorCode +twoFactorCodeExpire",
+//       );
+
+//       if (!user) {
+//         return next(new ErrorHandler("Invalid request", 400));
+//       }
+
+//       const result = verifyCode(user, code);
+
+//       if (!result.valid) {
+//         if (result.reason === "expired") {
+//           await user.save({ validateBeforeSave: false });
+//           return next(new ErrorHandler("Verification code has expired", 400));
+//         }
+
+//         return next(new ErrorHandler("Invalid verification code", 400));
+//       }
+
+//       clearCode(user);
+//       await user.save({ validateBeforeSave: false });
+
+//       sendToken(user, 200, res);
+//     } catch (error) {
+//       console.error("💥 Error in verify-2fa:", error);
+//       console.error("Stack trace:", error.stack);
+//       return next(new ErrorHandler(error.message, 500));
+//     }
+//   }),
+// );
+
+// // routes/auth.js  — add alongside your other routes
+// router.post(
+//   "/resend-2fa",
+//   resend2FALimiter,
+//   catchAsyncErrors(async (req, res, next) => {
+//     const { userId } = req.body;
+//     const user = await User.findById(userId);
+//     if (!user) {
+//       return next(new ErrorHandler("Invalid request", 400));
+//     }
+//     const channel = await generateAndSendTwoFactorCode(user);
+//     res.status(200).json({ success: true, channel });
+//   }),
+// );
+
 /* ── Verify 2FA Code ── */
+const MAX_2FA_ATTEMPTS = 5;
+
 router.post(
   "/verify-2fa",
   twoFALimiter,
   catchAsyncErrors(async (req, res, next) => {
-    try {
-      const { userId, code } = req.body;
+    const { code } = req.body;
 
-      if (!userId || !code) {
-        return next(new ErrorHandler("User ID and code are required", 400));
-      }
-
-      const user = await User.findById(userId).select(
-        "+twoFactorCode +twoFactorCodeExpire",
-      );
-
-      if (!user) {
-        return next(new ErrorHandler("Invalid request", 400));
-      }
-
-      const result = verifyCode(user, code);
-
-      if (!result.valid) {
-        if (result.reason === "expired") {
-          await user.save({ validateBeforeSave: false });
-          return next(new ErrorHandler("Verification code has expired", 400));
-        }
-
-        return next(new ErrorHandler("Invalid verification code", 400));
-      }
-
-      clearCode(user);
-      await user.save({ validateBeforeSave: false });
-
-      sendToken(user, 200, res);
-    } catch (error) {
-      console.error("💥 Error in verify-2fa:", error);
-      console.error("Stack trace:", error.stack);
-      return next(new ErrorHandler(error.message, 500));
+    if (!code) {
+      return next(new ErrorHandler("Verification code is required", 400));
     }
+
+    const pending = req.session.pending2fa;
+    if (!pending || pending.expiresAt < Date.now()) {
+      return next(
+        new ErrorHandler("Sign-in timed out. Please sign in again.", 401),
+      );
+    }
+
+    // Per-session cap, so a 6-digit code can't be brute-forced
+    // even if the attacker rotates IPs past twoFALimiter.
+    pending.attempts = (pending.attempts || 0) + 1;
+    if (pending.attempts > MAX_2FA_ATTEMPTS) {
+      delete req.session.pending2fa;
+      return next(
+        new ErrorHandler(
+          "Too many incorrect codes. Please sign in again.",
+          401,
+        ),
+      );
+    }
+
+    const user = await User.findById(pending.userId).select(
+      "+twoFactorCode +twoFactorCodeExpire",
+    );
+
+    if (!user) {
+      delete req.session.pending2fa;
+      return next(
+        new ErrorHandler("Sign-in timed out. Please sign in again.", 401),
+      );
+    }
+
+    assertActive(user); // account may have been deactivated since step 1
+
+    const result = verifyCode(user, code);
+
+    if (!result.valid) {
+      if (result.reason === "expired") {
+        await user.save({ validateBeforeSave: false });
+        return next(new ErrorHandler("Verification code has expired", 400));
+      }
+      return next(new ErrorHandler("Invalid verification code", 400));
+    }
+
+    clearCode(user);
+    await user.save({ validateBeforeSave: false });
+
+    await loginSession(req, user); // regenerates the session, dropping pending2fa
+
+    res.status(200).json({ success: true, user });
   }),
 );
 
@@ -496,12 +637,29 @@ router.post(
   "/resend-2fa",
   resend2FALimiter,
   catchAsyncErrors(async (req, res, next) => {
-    const { userId } = req.body;
-    const user = await User.findById(userId);
-    if (!user) {
-      return next(new ErrorHandler("Invalid request", 400));
+    const pending = req.session.pending2fa;
+    if (!pending || pending.expiresAt < Date.now()) {
+      return next(
+        new ErrorHandler("Sign-in timed out. Please sign in again.", 401),
+      );
     }
+
+    const user = await User.findById(pending.userId);
+    if (!user) {
+      delete req.session.pending2fa;
+      return next(
+        new ErrorHandler("Sign-in timed out. Please sign in again.", 401),
+      );
+    }
+
+    assertActive(user);
+
     const channel = await generateAndSendTwoFactorCode(user);
+
+    // New code, so give it a fresh window and a fresh attempt budget
+    pending.expiresAt = Date.now() + 10 * 60 * 1000;
+    pending.attempts = 0;
+
     res.status(200).json({ success: true, channel });
   }),
 );
@@ -1017,25 +1175,48 @@ router.put(
 );
 
 // user logout
-router.get(
-  "/logout",
-  catchAsyncErrors(async (req, res, next) => {
-    try {
-      res.cookie("token", null, {
-        expires: new Date(Date.now()),
-        httpOnly: true,
-        sameSite: "none",
-        secure: true,
-      });
-      res.status(201).json({
-        success: true,
-        message: "Log out successful!",
-      });
-    } catch (error) {
-      return next(new ErrorHandler(error.message, 500));
-    }
-  }),
-);
+// router.get(
+//   "/logout",
+//   catchAsyncErrors(async (req, res, next) => {
+//     try {
+//       res.cookie("token", null, {
+//         expires: new Date(Date.now()),
+//         httpOnly: true,
+//         sameSite: "none",
+//         secure: true,
+//       });
+//       res.status(201).json({
+//         success: true,
+//         message: "Log out successful!",
+//       });
+//     } catch (error) {
+//       return next(new ErrorHandler(error.message, 500));
+//     }
+//   }),
+// );
+
+// logout
+router.post("/logout", (req, res, next) => {
+  req.session.destroy((err) => {
+    if (err) return next(new ErrorHandler("Logout failed", 500));
+
+    res.clearCookie("sid", { httpOnly: true, secure: true, sameSite: "lax" });
+
+    // Migration only: clear leftovers from the JWT era, remove later
+    res.clearCookie("token", {
+      httpOnly: true,
+      secure: true,
+      sameSite: "none",
+    });
+    res.clearCookie("pending2fa", {
+      httpOnly: true,
+      secure: true,
+      sameSite: "lax",
+    });
+
+    res.status(200).json({ success: true, message: "Log out successful!" });
+  });
+});
 
 // user enrollment
 router.put(
