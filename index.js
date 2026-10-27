@@ -100,6 +100,15 @@ app.use(express.urlencoded({ limit: "50mb", extended: true }));
 app.use(cookieParser());
 
 app.use(passport.initialize());
+app.use(
+  session({
+    secret: process.env.JWT_SECRET_KEY,
+    resave: false,
+    saveUninitialized: false,
+    // store: MongoStore.create(...),   // commented out to test
+    cookie: { httpOnly: true, secure: false, sameSite: "lax" },
+  }),
+);
 
 //config cloundinary
 cloudinary.config({
