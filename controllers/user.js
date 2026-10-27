@@ -1017,25 +1017,18 @@ router.put(
 );
 
 // user logout
-router.get(
-  "/logout",
-  catchAsyncErrors(async (req, res, next) => {
-    try {
-      res.cookie("token", null, {
-        expires: new Date(Date.now()),
-        httpOnly: true,
-        sameSite: "none",
-        secure: true,
-      });
-      res.status(201).json({
-        success: true,
-        message: "Log out successful!",
-      });
-    } catch (error) {
-      return next(new ErrorHandler(error.message, 500));
-    }
-  }),
-);
+
+router.post("/logout", (req, res) => {
+  // Options must match the ones used when the cookies were set,
+  // otherwise the browser keeps the old cookie.
+  res.clearCookie("token", sendToken.cookieOptions);
+  res.clearCookie("pending2fa", sendToken.cookieOptions);
+
+  res.status(200).json({
+    success: true,
+    message: "Log out successful!",
+  });
+});
 
 // user enrollment
 router.put(
