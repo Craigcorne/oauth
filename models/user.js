@@ -157,7 +157,7 @@ userSchema.pre("save", function () {
 userSchema.methods.getJwtToken = function () {
   return jwt.sign(
     { id: this._id, v: this.tokenVersion, purpose: "access" },
-    process.env.JWT_SECRET,
+    process.env.JWT_SECRET_KEY,
     { expiresIn: "1d", algorithm: "HS256" }, // keep in step with SESSION_MS
   );
 };
