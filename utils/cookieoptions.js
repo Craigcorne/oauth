@@ -1,10 +1,11 @@
-// utils/cookieOptions.js
+// utils/cookieOptions.js  (adjust the folder to match your project)
 const isProd = process.env.NODE_ENV === "production";
 
-module.exports = {
+const baseCookieOptions = {
   httpOnly: true,
   secure: isProd,
   sameSite: "lax",
-  // A domain cookie can't be set from localhost, so only use it in production
   ...(isProd && { domain: ".ninetyone.co.ke" }),
 };
+
+module.exports = baseCookieOptions;

@@ -21,6 +21,7 @@ const {
 
 const { recordPointsLedgerEntry } = require("../utils/pointsLedger");
 const { findOrCreateOAuthUser } = require("../middleware/user");
+const baseCookieOptions = require("../utils/cookieoptions");
 const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
 
 function closePopupWithMessage(res, source) {
