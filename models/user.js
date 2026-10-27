@@ -121,7 +121,6 @@ const userSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
-    tokenVersion: { type: Number, default: 0 },
 
     createdAt: {
       type: Date,
@@ -155,11 +154,9 @@ userSchema.pre("save", function () {
 
 // jwt token
 userSchema.methods.getJwtToken = function () {
-  return jwt.sign(
-    { id: this._id, v: this.tokenVersion, purpose: "access" },
-    process.env.JWT_SECRET_KEY,
-    { expiresIn: "1d", algorithm: "HS256" }, // keep in step with SESSION_MS
-  );
+  return jwt.sign({ id: this._id }, process.env.JWT_SECRET_KEY, {
+    expiresIn: process.env.JWT_EXPIRES,
+  });
 };
 
 module.exports = mongoose.models.User || mongoose.model("User", userSchema);
