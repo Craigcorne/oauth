@@ -36,29 +36,24 @@ const allowed = [
   "https://www.ninetyone.co.ke",
   // "http://localhost:3000",
 ];
+const corsOptions = {
+  origin: (origin, cb) => {
+    console.log("CORS origin:", origin); // remove once working
 
-app.use(
-  cors({
-    origin: (origin, cb) => {
-      if (!origin) {
-        return cb(null, true);
-      }
+    if (!origin) return cb(null, true); // Postman, server-to-server
 
-      if (allowed.includes(origin)) {
-        return cb(null, origin);
-      }
+    if (allowed.includes(origin)) return cb(null, true);
 
-      return cb(new Error(`Not allowed by CORS: ${origin}`));
-    },
+    return cb(null, false);
+  },
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: true,
+  optionsSuccessStatus: 204,
+};
 
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-
-    allowedHeaders: ["Content-Type", "Authorization"],
-
-    credentials: true,
-    optionsSuccessStatus: 204,
-  }),
-);
+app.use(cors(corsOptions));
+app.options("*", cors(corsOptions));
 
 // app.use(
 //   cors({
