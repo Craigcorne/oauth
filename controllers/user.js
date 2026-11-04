@@ -484,8 +484,14 @@ router.post(
 
       clearCode(user);
       await user.save({ validateBeforeSave: false });
-
-      sendToken(user, 200, res);
+      const token = user.getJwtToken();
+      res.cookie("token", token, {
+        expires: new Date(Date.now() + 1 * 24 * 60 * 60 * 1000),
+        httpOnly: true,
+        sameSite: "none",
+        secure: true,
+      });
+      return res.status(200).json({ success: true, token, user });
     } catch (error) {
       console.error("💥 Error in verify-2fa:", error);
       console.error("Stack trace:", error.stack);
