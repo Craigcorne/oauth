@@ -266,9 +266,9 @@ router.post(
       return res.status(200).json({
         source: "tiktok-oauth",
         success: true,
-        // require2FA: true,
-        // userId: user._id,
-        // channel,
+        require2FA: true,
+        userId: user._id,
+        channel,
       });
     }
 
@@ -444,6 +444,7 @@ router.post(
         require2FA: true,
         message: "Two-factor authentication required",
         channel,
+        userId: user._id.toString(),
       });
     }
 
