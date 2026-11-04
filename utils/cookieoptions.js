@@ -5,6 +5,7 @@ const baseCookieOptions = {
   httpOnly: true,
   secure: isProd,
   sameSite: "lax",
+  path: "/",
   ...(isProd && { domain: ".ninetyone.co.ke" }),
 };
 

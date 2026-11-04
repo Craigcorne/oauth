@@ -266,9 +266,9 @@ router.post(
       return res.status(200).json({
         source: "tiktok-oauth",
         success: true,
-        require2FA: true,
-        userId: user._id,
-        channel,
+        // require2FA: true,
+        // userId: user._id,
+        // channel,
       });
     }
 
@@ -360,8 +360,11 @@ router.get(
 
       //return closePopupWithMessage(res, "google-oauth");
 
+      // return res.redirect(
+      //   `${FRONTEND_URL}/oauth/result?provider=google&success=true&token=${token}`,
+      // );
       return res.redirect(
-        `${FRONTEND_URL}/oauth/result?provider=google&success=true&token=${token}`,
+        `${FRONTEND_URL}/oauth/result?provider=google&success=true`,
       );
     } catch (err) {
       return res.redirect(
@@ -431,9 +434,7 @@ router.post(
         { expiresIn: "10m" },
       );
       res.cookie("pending2fa", pending, {
-        httpOnly: true,
-        secure: true,
-        sameSite: "lax",
+        ...baseCookieOptions,
         maxAge: 10 * 60 * 1000,
       });
 
@@ -520,7 +521,7 @@ router.delete(
     user.isActive = !user.isActive;
     await user.save();
 
-    res.clearCookie("token");
+    res.clearCookie("token", baseCookieOptions);
 
     res.status(200).json({
       success: true,
@@ -540,12 +541,13 @@ router.get(
       return next(new ErrorHandler("User not found", 404));
     }
     if (user.isActive === false) {
-      res.cookie("token", null, {
-        expires: new Date(Date.now()),
-        httpOnly: true,
-        sameSite: "none",
-        secure: true,
-      });
+      // res.cookie("token", null, {
+      //   expires: new Date(Date.now()),
+      //   httpOnly: true,
+      //   sameSite: "none",
+      //   secure: true,
+      // });
+      res.clearCookie("token", baseCookieOptions);
       return next(new ErrorHandler("Your account has been deactivated.", 403));
     }
 
