@@ -4,6 +4,7 @@ const User = require("../models/user");
 const Invoice = require("../models/invoice"); // adjust path to your User model
 const catchAsyncErrors = require("../middleware/catchAsyncErrors"); // adjust to your actual path
 const sendToken = require("../utils/jwtToken"); // the same helper used in /login-user
+const { setAuthCookie } = require("../utils/jwtToken");
 const ErrorHandler = require("../utils/ErrorHandler");
 const passport = require("../config/passport");
 const express = require("express");
@@ -272,13 +273,7 @@ router.post(
       });
     }
 
-    const token = user.getJwtToken();
-    res.cookie("token", token, {
-      expires: new Date(Date.now() + 1 * 24 * 60 * 60 * 1000),
-      httpOnly: true,
-      sameSite: "none",
-      secure: true,
-    });
+    setAuthCookie(res, user);
 
     return res
       .status(200)
@@ -294,15 +289,8 @@ router.get(
   }),
   catchAsyncErrors((req, res) => {
     const user = req.user;
-    /* ── BLOCK INACTIVE USERS ── */
     assertActive(user);
-    const token = user.getJwtToken();
-    res.cookie("token", token, {
-      expires: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000),
-      httpOnly: true,
-      sameSite: "none",
-      secure: true,
-    });
+    setAuthCookie(res, user);
     return closePopupWithMessage(res, "facebook-oauth");
   }),
 );
@@ -321,7 +309,7 @@ router.get(
   googleCallbackLimiter,
   // Custom callback so we can turn errors into a redirect the popup understands
   (req, res, next) => {
-    passport.authenticate("google", { session: false }, (err, user) => {
+    passport.authenticate("google", { session: false }, (err, user, info) => {
       if (err) {
         const code =
           err.code === "USER_NOT_FOUND" ? "&code=USER_NOT_FOUND" : "";
@@ -332,13 +320,14 @@ router.get(
       if (!user)
         return res.redirect(`${FRONTEND_URL}/login?error=oauth_failed`);
       req.user = user;
+      req.authInfo = info;
       next();
     })(req, res, next);
   },
   async (req, res) => {
     try {
       const user = req.user;
-      const isNew = req.authInfo?.isNew ?? false; // depends on your strategy setup
+      const isNew = req.authInfo?.isNew ?? false;
 
       assertActive(user);
 
@@ -349,20 +338,8 @@ router.get(
         );
       }
 
-      const token = user.getJwtToken();
+      setAuthCookie(res, user);
 
-      res.cookie("token", token, {
-        expires: new Date(Date.now() + 1 * 24 * 60 * 60 * 1000),
-        httpOnly: true,
-        sameSite: "none",
-        secure: true,
-      });
-
-      //return closePopupWithMessage(res, "google-oauth");
-
-      // return res.redirect(
-      //   `${FRONTEND_URL}/oauth/result?provider=google&success=true&token=${token}`,
-      // );
       return res.redirect(
         `${FRONTEND_URL}/oauth/result?provider=google&success=true`,
       );
@@ -371,19 +348,6 @@ router.get(
         `${FRONTEND_URL}/oauth/result?provider=google&success=false&message=${encodeURIComponent(err.message)}`,
       );
     }
-    //   catch (err) {return res.send(`
-    //     <!doctype html>
-    //     <script>
-    //       window.opener.postMessage({
-    //         source: "google-oauth",
-    //         success: false,
-    //         message: ${JSON.stringify(err.message)}
-    //       }, "${FRONTEND_URL}");
-
-    //       window.close();
-    //     </script>
-    //   `);
-    // }
   },
 );
 
@@ -484,14 +448,8 @@ router.post(
 
       clearCode(user);
       await user.save({ validateBeforeSave: false });
-      const token = user.getJwtToken();
-      res.cookie("token", token, {
-        expires: new Date(Date.now() + 1 * 24 * 60 * 60 * 1000),
-        httpOnly: true,
-        sameSite: "none",
-        secure: true,
-      });
-      return res.status(200).json({ success: true, token, user });
+      setAuthCookie(res, user);
+      return res.status(200).json({ success: true, user });
     } catch (error) {
       console.error("💥 Error in verify-2fa:", error);
       console.error("Stack trace:", error.stack);
