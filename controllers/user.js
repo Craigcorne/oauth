@@ -364,7 +364,7 @@ router.get(
       //   `${FRONTEND_URL}/oauth/result?provider=google&success=true&token=${token}`,
       // );
       return res.redirect(
-        `${FRONTEND_URL}/oauth/result?provider=google&success=true`,
+        `${FRONTEND_URL}/oauth/result?provider=google&success=true#token=${token}`,
       );
     } catch (err) {
       return res.redirect(
