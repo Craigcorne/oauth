@@ -1,22 +1,25 @@
+// // sendToken.js
+
+// const baseCookieOptions = require("./cookieoptions");
+
+// const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+
+// const sendToken = (user, statusCode, res) => {
+//   const token = user.getJwtToken();
+//   res
+//     .status(statusCode)
+//     .cookie("token", token, { ...baseCookieOptions, maxAge: ONE_DAY_MS })
+//     .json({ success: true, user, token });
+// };
+// module.exports = sendToken;
+// utils/jwtToken.js
 const baseCookieOptions = require("./cookieoptions");
 
-const isProd = process.env.NODE_ENV === "production";
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
 const setAuthCookie = (res, user) => {
-  // Wipe the legacy host-only cookie so it can't shadow the new domain-wide one
-  if (isProd) {
-    res.clearCookie("token", {
-      httpOnly: true,
-      secure: true,
-      sameSite: "none",
-      path: "/",
-    });
-  }
-  res.cookie("token", user.getJwtToken(), {
-    ...baseCookieOptions,
-    maxAge: ONE_DAY_MS,
-  });
+  const token = user.getJwtToken();
+  res.cookie("token", token, { ...baseCookieOptions, maxAge: ONE_DAY_MS });
 };
 
 const sendToken = (user, statusCode, res) => {
