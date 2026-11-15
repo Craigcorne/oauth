@@ -20,6 +20,8 @@ const location = require("./controllers/location");
 const collection = require("./controllers/collections");
 const transaction = require("./controllers/transactions");
 const order = require("./controllers/order");
+const meta = require("./controllers/meta");
+const feed = require("./controllers/feeds");
 const mongoose = require("mongoose");
 const connectDatabase = require("./config/db");
 const app = express();
@@ -123,6 +125,8 @@ app.use("/api/v2/qrcode", qrCode);
 app.use("/api/v2/analytics", analytics);
 app.use("/api/v2/collections", collection);
 app.use("/api/v2/transaction", transaction);
+app.use("/api/v2/feeds", feed);
+app.use("/api/v2/meta", meta);
 
 app.use(ErrorHandler);
 
