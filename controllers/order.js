@@ -1408,9 +1408,6 @@ router.get(
     oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
 
     const orders = await Order.find({
-      // 🚫 Never include in-store / pickup purchases
-      "shippingAddress.shippingType": { $ne: "pickup" },
-
       $or: [
         {
           deliveredAt: { $gte: oneWeekAgo, $ne: null },
